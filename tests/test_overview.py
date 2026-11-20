@@ -30,12 +30,18 @@ class OverviewTests(unittest.TestCase):
             }
             levels = {0: "Нет признаков", 1: "Первый", 2: "Второй", 3: "Третий"}
             report = build_overview(db, "2026-04-20", {10: "А", 20: "Б"}, surveys, levels, None)
+            short_report = build_overview(
+                db, "2026-04-20", {10: "А", 20: "Б"}, surveys, levels, None, window_days=7,
+            )
         self.assertEqual(report["current"], {"staff": 3, "surveyed": 2, "elevated": 1, "schools": 2})
         self.assertEqual([level["count"] for level in report["levels"]], [1, 0, 1, 0])
         self.assertEqual(report["workload"]["average"], 1.25)
         self.assertEqual(report["history"][0], {"date": "2026-03-31", "staff": 4, "surveyed": 2, "elevated": 2})
         self.assertEqual(report["schools"][0]["levels"], {0: 1})
         self.assertEqual(report["schools"][1]["levels"], {2: 1})
+        self.assertEqual(short_report["survey_from"], "2026-04-14")
+        self.assertEqual(short_report["current"]["surveyed"], 1)
+        self.assertEqual(short_report["previous"]["surveyed"], 0)
 
     def test_review_uses_flags_and_only_fresh_survey_context(self):
         with closing(sqlite3.connect(":memory:")) as db:
@@ -49,10 +55,12 @@ class OverviewTests(unittest.TestCase):
             people = build_review(
                 db, {1: "А", 2: "Б", 3: "В"}, {10: "Школа"}, surveys,
                 {1: "Напряжённость", 3: "Бессилие"}, [1, 2], "2026-04-20",
+                risk_scores={1: 0.65, 2: 0.55},
             )
         self.assertEqual([person["id"] for person in people], [1, 2])
         self.assertEqual((people[0]["survey_stage"], people[0]["fte"]), ("Напряжённость", 1.5))
         self.assertIsNone(people[1]["survey_stage"])
+        self.assertEqual(people[0]["risk_score"], 0.65)
 
     def test_legacy_database_has_no_staffing_overview(self):
         with closing(sqlite3.connect(":memory:")) as db:

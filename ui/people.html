@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Педагоги · Мониторинг педагогов</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/overview.css">
+  <script src="/overview-shared.js" defer></script>
+  <script src="/people.js" defer></script>
+</head>
+<body>
+  <header class="wrap topbar">
+    <a class="brand" id="overview-link" href="/">Мониторинг педагогов</a>
+    <nav aria-label="Разделы"><a id="overview-nav" href="/">Обзор</a><a href="/people" aria-current="page">Педагоги</a><a href="/classic#teacher">Досье</a></nav>
+  </header>
+  <main class="wrap directory">
+    <header class="report-head"><h1>Педагоги</h1><p id="people-period" class="muted"></p></header>
+    <p id="people-status" role="status">Загружаем список…</p>
+    <section id="people-result" hidden aria-label="Педагоги, отмеченные моделью">
+      <div class="table-toolbar directory-toolbar">
+        <label class="filter search"><span class="sr-only">Поиск по имени</span><input type="search" id="people-search" placeholder="Поиск по имени" autocomplete="off"></label>
+        <label class="filter"><span class="sr-only">Школа</span><select id="people-school"><option value="all">Все школы</option></select></label>
+        <label class="filter directory-order">Сортировать <select id="people-sort"><option value="risk">По риску</option><option value="name">По имени</option></select></label>
+      </div>
+      <div class="table-scroll" role="region" tabindex="0" aria-label="Список педагогов" id="people-table"><table>
+        <thead><tr><th scope="col">Педагог</th><th scope="col">Школа</th><th scope="col">Последний опрос</th><th scope="col">Ставки</th><th scope="col" title="Оценка модели по шкале от 0 до 100">Балл модели</th></tr></thead>
+        <tbody id="people-rows"></tbody>
+      </table></div>
+      <div id="people-pager" class="pager"></div>
+    </section>
+  </main>
+</body>
+</html>

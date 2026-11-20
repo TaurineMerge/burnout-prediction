@@ -4,7 +4,7 @@ import json
 import sqlite3
 import argparse
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from wsgiref.simple_server import make_server
 from pathlib import Path
 from urllib.parse import parse_qs, quote
@@ -16,7 +16,17 @@ _OVERVIEW_ASSETS = {
     "/overview": ("overview.html", "text/html; charset=utf-8"),
     "/overview.css": ("overview.css", "text/css; charset=utf-8"),
     "/overview.js": ("overview.js", "text/javascript; charset=utf-8"),
+    "/overview-shared.js": ("overview-shared.js", "text/javascript; charset=utf-8"),
+    "/people": ("people.html", "text/html; charset=utf-8"),
+    "/people.js": ("people.js", "text/javascript; charset=utf-8"),
 }
+
+_SURVEY_WINDOWS = {7, 28, 90}
+
+
+def _complete_week_end(as_of):
+    cutoff = date.fromisoformat(as_of)
+    return (cutoff - timedelta(days=(cutoff.weekday() + 1) % 7)).isoformat()
 
 
 _PAGE = """<!doctype html>
@@ -852,34 +862,55 @@ def create_app(
                 for level in sorted(stage_names)
             ],
         }
-        flagged_teachers = [] if overview_preview else None
+        risk_results = {}
+        risk_scores = {}
         if model_risk:
             from model_risk import summarize_risk
 
-            summary["model_risk"] = summarize_risk(connection, report_date, at_risk_ids=flagged_teachers)
-        overview = build_overview(
-            connection, report_date, school_names, surveys_by_teacher, burnout_type_names,
-            summary.get("model_risk"),
-        )
-        review = None
-        if overview is not None:
-            overview["academic_year"] = {
-                "teachers": teacher_count,
-                "schools": school_count,
-                "months": len(months),
-                "start": period_start,
-                "end": period_end,
-                "levels": [
-                    {"code": row["level"], "name": row["name"], "count": row["count"], "percent": row["percent"]}
-                    for row in summary["stages"]
-                ],
-            }
-            if flagged_teachers is not None and summary.get("model_risk", {}).get("status") == "available":
-                review = build_review(
-                    connection, teacher_names, school_names, surveys_by_teacher, burnout_type_names,
-                    flagged_teachers, report_date,
-                )
-            overview["review_available"] = review is not None
+            flagged = {} if overview_preview else None
+            risk = summarize_risk(connection, report_date, risk_scores=flagged)
+            summary["model_risk"] = risk
+            risk_results[risk["week_end"]] = risk
+            if flagged is not None:
+                risk_scores[risk["week_end"]] = flagged
+                prior_end = (date.fromisoformat(risk["week_end"]) - timedelta(days=7)).isoformat()
+                old_flagged = {}
+                prior_risk = summarize_risk(connection, prior_end, risk_scores=old_flagged)
+                risk_results[prior_end] = prior_risk
+                risk_scores[prior_end] = old_flagged
+
+        academic_year = {
+            "teachers": teacher_count,
+            "schools": school_count,
+            "start": period_start,
+            "end": period_end,
+            "levels": [
+                {"code": row["level"], "name": row["name"], "count": row["count"], "percent": row["percent"]}
+                for row in summary["stages"]
+            ],
+        }
+
+        def overview_at(db, as_of, window):
+            week = _complete_week_end(as_of)
+            risk = risk_results.get(week)
+            result = build_overview(
+                db, as_of, school_names, surveys_by_teacher, burnout_type_names, risk,
+                window_days=window,
+            )
+            if result is None:
+                return None
+            before = (date.fromisoformat(week) - timedelta(days=7)).isoformat()
+            result.update({
+                "academic_year": academic_year,
+                "min_date": min(period_start or report_date, report_date),
+                "max_date": report_date,
+                "previous_model_risk": risk_results.get(before),
+                "review_available": week in risk_scores and risk is not None and risk["status"] == "available",
+                "model_enabled": model_risk,
+            })
+            return result
+
+        overview = overview_at(connection, report_date, 28)
 
         teacher_directory = []
         teacher_details = {}
@@ -973,16 +1004,38 @@ def create_app(
             return json_response(start_response, "200 OK", summary)
 
         if path in _OVERVIEW_ASSETS:
+            if path in {"/people", "/people.js"} and not overview_preview:
+                return json_response(start_response, "404 Not Found", {"error": "not found"})
             filename, content_type = _OVERVIEW_ASSETS[path]
             return response(start_response, "200 OK", (_UI / filename).read_bytes(), content_type)
 
-        if path == "/api/overview":
+        if path == "/api/overview" or (path == "/api/overview/review" and overview_preview):
             if overview is None:
                 return json_response(start_response, "409 Conflict", {"error": "staffing_data_missing"})
-            return json_response(start_response, "200 OK", overview)
-
-        if path == "/api/overview/review" and review is not None:
-            return json_response(start_response, "200 OK", {"people": review})
+            params = parse_qs(environ.get("QUERY_STRING", ""))
+            try:
+                as_of = date.fromisoformat(params.get("date", [report_date])[0]).isoformat()
+                window = int(params.get("window", ["28"])[0])
+                if not overview["min_date"] <= as_of <= report_date or window not in _SURVEY_WINDOWS:
+                    raise ValueError
+            except ValueError:
+                return json_response(start_response, "400 Bad Request", {"error": "invalid_period"})
+            if path == "/api/overview" and as_of == report_date and window == 28:
+                return json_response(start_response, "200 OK", overview)
+            with closing(sqlite3.connect(db_uri, uri=True)) as db:
+                db.row_factory = sqlite3.Row
+                if path == "/api/overview":
+                    return json_response(start_response, "200 OK", overview_at(db, as_of, window))
+                week = _complete_week_end(as_of)
+                scores = risk_scores.get(week)
+                risk = risk_results.get(week)
+                if scores is None or risk is None or risk["status"] != "available":
+                    return json_response(start_response, "404 Not Found", {"error": "no_weekly_assessment"})
+                people = build_review(
+                    db, teacher_names, school_names, surveys_by_teacher, burnout_type_names,
+                    scores, as_of, risk_scores=scores, window_days=window,
+                )
+                return json_response(start_response, "200 OK", {"people": people, "model_risk": risk})
 
         if path == "/api/teachers":
             return json_response(

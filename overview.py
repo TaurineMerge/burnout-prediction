@@ -7,7 +7,10 @@ from datetime import date, timedelta
 SURVEY_WINDOW_DAYS = 28
 
 
-def build_overview(db, report_date, school_names, surveys_by_teacher, level_names, model_risk):
+def build_overview(
+    db, report_date, school_names, surveys_by_teacher, level_names, model_risk,
+    *, window_days=SURVEY_WINDOW_DAYS,
+):
     if not db.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'teacher_staffing'"
     ).fetchone():
@@ -18,7 +21,7 @@ def build_overview(db, report_date, school_names, surveys_by_teacher, level_name
     )]
 
     def snapshot(as_of):
-        lower = (date.fromisoformat(as_of) - timedelta(days=SURVEY_WINDOW_DAYS - 1)).isoformat()
+        lower = (date.fromisoformat(as_of) - timedelta(days=window_days - 1)).isoformat()
         active = [row for row in staff if row["started_on"] <= as_of and (
             row["ended_on"] is None or row["ended_on"] > as_of
         )]
@@ -58,9 +61,14 @@ def build_overview(db, report_date, school_names, surveys_by_teacher, level_name
         })
 
     history = []
+    today = date.fromisoformat(report_date)
+    previous = None
     if staff:
-        cursor = date.fromisoformat(min(row["started_on"] for row in staff)).replace(day=1)
-        today = date.fromisoformat(report_date)
+        first_date = date.fromisoformat(min(row["started_on"] for row in staff))
+        previous_end = today - timedelta(days=window_days)
+        if previous_end - timedelta(days=window_days - 1) >= first_date:
+            previous = counts(*snapshot(previous_end.isoformat()))
+        cursor = first_date.replace(day=1)
         while cursor <= today:
             month_end = cursor.replace(day=monthrange(cursor.year, cursor.month)[1])
             as_of = min(month_end, today).isoformat()
@@ -71,7 +79,9 @@ def build_overview(db, report_date, school_names, surveys_by_teacher, level_name
     workload = Counter(row["workload_fte"] for row in active)
     return {
         "date": report_date,
-        "survey_window_days": SURVEY_WINDOW_DAYS,
+        "survey_from": (today - timedelta(days=window_days - 1)).isoformat(),
+        "survey_window_days": window_days,
+        "previous": previous,
         "current": {**counts(active, levels), "schools": len(schools)},
         "levels": [
             {"name": name, "code": level, "count": distribution[level]}
@@ -91,9 +101,12 @@ def build_overview(db, report_date, school_names, surveys_by_teacher, level_name
     }
 
 
-def build_review(db, account_names, school_names, surveys, level_names, teacher_ids, report_date):
+def build_review(
+    db, account_names, school_names, surveys, level_names, teacher_ids, report_date,
+    *, risk_scores=None, window_days=SURVEY_WINDOW_DAYS,
+):
     staffing = {row["user_id"]: row for row in db.execute("SELECT * FROM teacher_staffing")}
-    window_start = (date.fromisoformat(report_date) - timedelta(days=SURVEY_WINDOW_DAYS - 1)).isoformat()
+    window_start = (date.fromisoformat(report_date) - timedelta(days=window_days - 1)).isoformat()
     people = []
     for user_id in teacher_ids:
         row = staffing.get(user_id)
@@ -106,5 +119,6 @@ def build_review(db, account_names, school_names, surveys, level_names, teacher_
             "school": school_names.get(school_id),
             "fte": row["workload_fte"] if row else None,
             "survey_stage": level_names.get(latest["burnout_level"]) if latest else None,
+            "risk_score": risk_scores.get(user_id) if risk_scores is not None else None,
         })
     return sorted(people, key=lambda person: ((person["name"] or "").casefold(), person["id"]))
