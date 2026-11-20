@@ -1,0 +1,2 @@
+# Optional dependencies for dashboard.py --model-risk
+scikit-learn>=1.5.2,<2
