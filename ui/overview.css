@@ -94,19 +94,28 @@ thead button span { display: inline-block; min-width: .9em; text-align: center; 
 .risk-track span + span { box-shadow: inset 1px 0 var(--page); }
 .trend { margin-bottom: 36px; padding: 20px 24px 17px; background: #f0f4ef; border-radius: 12px; }
 .trend-context { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 9px 0 8px; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 19px; color: var(--muted); font-size: .89rem; }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend strong { color: var(--ink); font-weight: 670; font-variant-numeric: tabular-nums; }
-.line-key { width: 21px; border-top: 2px solid var(--teal); }
-.key-coverage { border-color: var(--coverage); border-top-style: dashed; }
 .trend-context button { margin-left: auto; font-size: .87rem; }
-.chart svg { display: block; width: 100%; height: 232px; overflow: visible; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 310px; overflow: visible; }
 .chart svg text { fill: var(--muted); font-size: 11px; }
+.chart .trend-panel-label { fill: var(--ink); font-size: 13px; font-weight: 650; }
+.chart .trend-latest { fill: var(--ink); font-size: 14px; font-weight: 710; }
+.chart .trend-point-label { fill: var(--teal); font-weight: 650; paint-order: stroke; stroke: #f0f4ef; stroke-width: 3px; stroke-linejoin: round; }
 .chart .gridline { stroke: var(--axis); stroke-width: 1; }
 .chart .series { fill: none; stroke: var(--teal); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .point { fill: var(--paper); stroke: var(--teal); stroke-width: 1.6; }
 .chart .trend-coverage .series { stroke: var(--coverage); stroke-dasharray: 5 5; }
 .chart .trend-coverage .point { stroke: var(--coverage); }
+.chart .trend-guide { stroke: #52665e; stroke-dasharray: 2 4; stroke-width: 1; }
+.chart .month-hit { fill: transparent; cursor: crosshair; }
+.chart .month-hit:focus { outline: none; }
+.trend-tip { position: absolute; top: 35px; z-index: 1; width: max-content; max-width: 100%; padding: 9px 12px; border-radius: 8px; background: #fffefa; box-shadow: 0 6px 18px #172e2b26; pointer-events: none; color: var(--muted); font-size: .82rem; }
+.trend-tip strong { color: var(--ink); font-weight: 660; font-variant-numeric: tabular-nums; }
+.trend-tip > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 2px 12px; margin-top: 5px; }
+.school-view { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 8px; background: var(--track); }
+.school-view button { min-height: 29px; padding: 4px 9px; border: 0; border-radius: 6px; color: var(--muted); background: none; font-size: .84rem; }
+.school-view button[aria-pressed='true'] { background: var(--paper); color: var(--ink); font-weight: 660; }
+.forecast-period { margin-top: 8px; font-size: .86rem; }
 dialog { width: min(calc(100% - 28px), 440px); max-height: 84vh; overflow: auto; padding: 20px; border: 0; border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: 0 14px 40px #172e2b27; }
 dialog::backdrop { background: #172e2b59; }
 .dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; }
@@ -157,6 +166,8 @@ dialog::backdrop { background: #172e2b59; }
 .signal-share { display: flex; gap: 2px 7px; align-items: baseline; justify-content: end; flex-wrap: wrap; text-align: right; }
 .signal-share strong { font-size: 1.18rem; font-weight: 680; font-variant-numeric: tabular-nums; }
 .signal-change { color: var(--muted); font-size: .83rem; white-space: nowrap; }
+.signal-change[data-direction='up'] { color: #925022; font-weight: 620; }
+.signal-change[data-direction='down'] { color: #226353; font-weight: 620; }
 .scope-totals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .scope-totals > span { padding: 3px 8px; border-radius: 5px; color: var(--muted); background: #efeee8; font-size: .84rem; }
 .scope-totals strong { color: var(--ink); }
@@ -181,7 +192,7 @@ dialog::backdrop { background: #172e2b59; }
 .directory table { min-width: 660px; }
 .directory th a { color: var(--teal); }
 #people-status:empty { display: none; }
-#chart-values { min-height: 232px; }
+#chart-values { min-height: 310px; }
 .filter select, .period-controls select {
   appearance: none; padding-inline-end: 29px; background-image: var(--chevron);
   background-position: right 11px center; background-repeat: no-repeat;

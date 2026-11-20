@@ -15,6 +15,7 @@ function svgElement(tag, attrs = {}, text) {
 const scopeOptions = $('stage-period');
 const stageNames = {'0': 'Нет признаков', '1': 'Напряжённость', '2': 'Истощение', '3': 'Бессилие'};
 const activeStages = new Set(['2', '3']);
+let schoolView = 'observed';
 let currentReport;
 let stopChart = () => {};
 let fetchRequest;
@@ -23,8 +24,8 @@ const help = {
   model: ['Риск выгорания по модели', 'Оценка относится к последней полной неделе с понедельника по воскресенье на дату обзора. Доля считается среди оценённых педагогов, изменение — к предыдущей неделе.'],
   survey: ['Результаты опросов', 'Окно опросов заканчивается датой обзора включительно. Учитывается последний ответ каждого педагога за это окно. Доля считается среди ответивших, изменение — к предыдущему окну той же длины.'],
   stages: ['Доли по стадиям', 'За учебный год доля считается от всех педагогов в годовом отчёте. За окно опросов доля считается среди ответивших за этот период.'],
-  schools: ['Сравнение школ', 'Нажмите название стадии, чтобы оставить только её. Плюс добавляет стадию, крестик снимает. Цвет каждого сегмента соответствует стадии, его длина — её доле среди ответивших. Охват считается от штата школы.'],
-  trend: ['Как сравнивать линии', 'Сплошная линия показывает долю истощения или бессилия среди ответивших. Пунктир показывает долю ответивших среди педагогов. Сравнение помогает заметить изменение охвата, но по агрегатам нельзя узнать, кто перестал отвечать.'],
+  schools: ['Сравнение школ', 'Название оставляет одну стадию, плюс добавляет, крестик убирает. Длина сегмента соответствует доле стадии среди ответивших. Прогноз на следующие 28 дней использует доли ответов за три предыдущих окна по 28 дней. Для оценки нужно хотя бы два окна с ответами.'],
+  trend: ['Как сравнивать линии', 'У графиков общие даты и разные шкалы. В верхнем доля считается среди ответивших, в нижнем — от штата. Наведите указатель на месяц или выберите его клавишами, чтобы увидеть числа.'],
 };
 for (const button of document.querySelectorAll('[data-info]')) {
   button.addEventListener('click', () => {
@@ -44,8 +45,10 @@ function writeSignal(id, count, base, value, prior) {
   txt(`${id}-share`, value === null ? '' : fmtShare(value));
   const change = $(`${id}-change`);
   change.textContent = '';
+  delete change.dataset.direction;
   if (value === null || prior === null) return;
   const difference = Math.round((value - prior) * 1000) / 10;
+  change.dataset.direction = difference > 0 ? 'up' : difference < 0 ? 'down' : 'flat';
   change.textContent = difference ? `${difference > 0 ? '↑' : '↓'} ${changeNumber.format(Math.abs(difference))} п. п.` : 'Без изменений';
   change.title = id === 'model' ? 'К предыдущей неделе' : 'К предыдущему периоду той же длины';
 }
@@ -72,8 +75,8 @@ function renderStages(report) {
   scopeOptions.options[0].textContent = year.start && year.end
     ? `Учебный год · ${formatMonth.format(new Date(year.start))} — ${formatMonth.format(new Date(year.end))}` : 'Учебный год';
   scopeOptions.options[1].textContent = `Окно опросов · ${report.survey_window_days} дней`;
-  txt('scope-people', fullYear ? integer.format(total) : fraction(current.surveyed, current.staff));
-  txt('scope-base-label', fullYear ? 'всего педагогов' : 'ответили на опрос');
+  txt('scope-people', fullYear ? fraction(year.surveyed, year.teachers) : fraction(current.surveyed, current.staff));
+  txt('scope-base-label', 'ответили на опрос');
   txt('scope-schools', integer.format(fullYear ? year.schools : current.schools));
   $('stage-metrics').dataset.scope = fullYear ? 'year' : 'current';
   $('stage-metrics').replaceChildren(...items.map(stage => {
@@ -114,15 +117,18 @@ function schoolStack(school, stages) {
 }
 
 const showSchools = createPager('school-pager', 8, rows => {
-  $('school-rows').replaceChildren(...rows.map(({school, count, part}) => {
+  const forecasting = schoolView === 'forecast';
+  $('school-rows').replaceChildren(...rows.map(({school, source, count, part}) => {
     const risk = element('div', undefined, 'school-risk');
-    risk.append(schoolStack(school, [...activeStages].sort()), element('strong', fmtShare(part)));
+    if (part === null) risk.append(element('span'), element('strong', '—'));
+    else risk.append(schoolStack(source, [...activeStages].sort()), element('strong', fmtShare(part)));
+    if (forecasting) return rowFor(school.name, [integer.format(source.surveyed), integer.format(source.windows), risk]);
     return rowFor(school.name, [integer.format(school.staff), integer.format(school.surveyed), fmtShare(metrics.coverage(school)), integer.format(count), risk]);
   }));
   if (!rows.length) {
     const row = element('tr');
     const cell = element('td', 'На эту дату нет данных по школам.');
-    cell.colSpan = 6;
+    cell.colSpan = forecasting ? 4 : 6;
     row.append(cell);
     $('school-rows').append(row);
   }
@@ -130,15 +136,18 @@ const showSchools = createPager('school-pager', 8, rows => {
 
 function renderSchools(schools) {
   const field = $('school-sort').value;
+  const forecasting = schoolView === 'forecast';
   const rows = schools.map(school => {
-    const count = [...activeStages].reduce((total, level) => total + (school.levels[level] ?? 0), 0);
-    return {school, count, part: share(count, school.surveyed)};
+    const source = forecasting ? school.forecast : school;
+    const count = [...activeStages].reduce((total, level) => total + (source.levels[level] ?? 0), 0);
+    const part = forecasting && !source.available ? null : share(count, source.surveyed);
+    return {school, source, count, part};
   });
   const scores = {
     share: row => row.part,
     count: row => row.count,
     coverage: row => metrics.coverage(row.school),
-    surveyed: row => row.school.surveyed,
+    surveyed: row => row.source.surveyed,
     staff: row => row.school.staff,
   };
   rows.sort((a, b) => {
@@ -152,6 +161,34 @@ function renderSchools(schools) {
   });
   showSchools(rows);
 }
+
+function renderSchoolView() {
+  const forecasting = schoolView === 'forecast';
+  $('observed-head').hidden = forecasting;
+  $('forecast-head').hidden = !forecasting;
+  $('school-forecast-note').hidden = !forecasting;
+  if (forecasting) {
+    const {start, end} = currentReport.forecast;
+    txt('school-forecast-note', `${fmtPeriod(start, end)} · оценка по прошлым опросам`);
+  }
+  const options = $('school-sort').options;
+  for (const option of options) {
+    option.hidden = forecasting && !['share', 'surveyed', 'name'].includes(option.value);
+    option.disabled = option.hidden;
+    if (option.value === 'surveyed') option.textContent = forecasting ? 'По ответам в расчёте' : 'По числу опрошенных';
+  }
+  const selectedSort = $('school-sort').selectedOptions[0];
+  if (!selectedSort || selectedSort.disabled) $('school-sort').value = 'share';
+  document.querySelectorAll('[data-school-view]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.schoolView === schoolView));
+  });
+  renderSchools(currentReport.schools);
+}
+document.querySelectorAll('[data-school-view]').forEach(button => button.addEventListener('click', () => {
+  if (!currentReport || button.dataset.schoolView === schoolView) return;
+  schoolView = button.dataset.schoolView;
+  renderSchoolView();
+}));
 const stageChips = new Map();
 function updateChips() {
   for (const [code, {chip, single, toggle}] of stageChips) {
@@ -201,9 +238,6 @@ const ratioWithShare = (count, total) => total ? `${fraction(count, total)} (${f
 
 function renderTrend() {
   const history = currentReport.history.slice(-Number($('trend-range').value));
-  const latest = history.at(-1);
-  txt('trend-elevated', fmtShare(latest ? metrics.elevated(latest) : null));
-  txt('trend-coverage', fmtShare(latest ? metrics.coverage(latest) : null));
   showHistory([...history].reverse());
   stopChart();
   stopChart = connectTrend(history);
@@ -227,69 +261,133 @@ function renderOverview(report) {
   $('report').hidden = false;
   renderSignals(report);
   renderStages(report);
-  renderSchools(report.schools);
+  renderSchoolView();
   renderTrend();
 }
 
 function connectTrend(history) {
   const host = $('trend-chart');
-  const series = [
-    {key: 'elevated', label: 'Истощение или бессилие', ratio: row => ratioWithShare(row.elevated, row.surveyed)},
-    {key: 'coverage', label: 'Ответили на опрос', ratio: row => ratioWithShare(row.surveyed, row.staff)},
+  const elevated = history.map(metrics.elevated);
+  const coverage = history.map(metrics.coverage);
+  const maxElevated = Math.max(0, ...elevated.filter(value => value !== null));
+  const step = Math.max(.05, Math.ceil(maxElevated * 5) / 20);
+  const tickCount = Math.max(2, Math.ceil(maxElevated / step - 1e-9));
+  const panels = [
+    {key: 'elevated', label: 'Истощение или бессилие', values: elevated, top: 42, bottom: 130, header: 21, ticks: Array.from({length: tickCount + 1}, (_, i) => step * i), ratio: row => ratioWithShare(row.elevated, row.surveyed)},
+    {key: 'coverage', label: 'Ответили на опрос', values: coverage, top: 183, bottom: 271, header: 162, ticks: [0, .25, .5, .75, 1], ratio: row => ratioWithShare(row.surveyed, row.staff)},
   ];
-  const hasPoints = history.some(row => series.some(({key}) => metrics[key](row) !== null));
+  const hasPoints = panels.some(panel => panel.values.some(value => value !== null));
   host.hidden = !hasPoints;
   $('chart-empty').hidden = hasPoints;
   if (!hasPoints) return () => {};
 
-  const svg = svgElement('svg', {'aria-hidden': 'true'});
-  host.replaceChildren(svg);
-  const top = 14;
-  const bottom = 192;
-  const left = 42;
+  const svg = svgElement('svg');
+  const tip = element('div', undefined, 'trend-tip');
+  tip.hidden = true;
+  tip.setAttribute('aria-hidden', 'true');
+  host.replaceChildren(svg, tip);
+  const left = 45;
   let width = 0;
 
   function draw() {
     const measured = host.clientWidth;
     if (measured === 0 || measured === width) return;
     width = measured;
-    const right = width - 18;
-    const x = index => left + (right - left) * index / Math.max(1, history.length - 1);
-    const y = value => bottom - value * (bottom - top);
-    svg.setAttribute('viewBox', `0 0 ${width} 232`);
-    svg.replaceChildren();
-    for (let tick = 0; tick <= 5; tick++) {
-      const ordinate = y(tick / 5);
-      svg.append(svgElement('line', {class: 'gridline', x1: left, x2: right, y1: ordinate, y2: ordinate}));
-      svg.append(svgElement('text', {x: left - 6, y: ordinate + 4, 'text-anchor': 'end'}, percent.format(tick / 5)));
-    }
-    const stride = Math.max(1, Math.ceil((history.length - 1) / Math.max(1, Math.floor((right - left) / 58))));
-    history.forEach((row, index) => {
-      const last = index === history.length - 1;
-      if (!last && (index % stride !== 0 || index > history.length - 1 - stride)) return;
-      const anchor = last ? 'end' : index === 0 ? 'start' : 'middle';
-      svg.append(svgElement('text', {x: x(index), y: 216, 'text-anchor': anchor}, monthFormat.format(new Date(row.date))));
-    });
-    for (const {key, label, ratio} of series) {
-      const group = svgElement('g', {class: `trend-${key}`});
+    const right = width - 22;
+    const distance = (right - left) / Math.max(1, history.length - 1);
+    const x = index => left + distance * index;
+    const marks = svgElement('g', {'aria-hidden': 'true'});
+    svg.setAttribute('viewBox', `0 0 ${width} 310`);
+    svg.replaceChildren(marks);
+    tip.hidden = true;
+    for (const panel of panels) {
+      const group = svgElement('g', {class: `trend-${panel.key}`});
+      const ceiling = panel.ticks.at(-1);
+      const y = value => panel.bottom - value * (panel.bottom - panel.top) / ceiling;
+      group.append(svgElement('text', {class: 'trend-panel-label', x: 0, y: panel.header}, panel.label));
+      group.append(svgElement('text', {class: 'trend-latest', x: right, y: panel.header, 'text-anchor': 'end'}, fmtShare(panel.values.at(-1))));
+      for (const tick of panel.ticks) {
+        const ordinate = y(tick);
+        group.append(svgElement('line', {class: 'gridline', x1: left, x2: right, y1: ordinate, y2: ordinate}));
+        group.append(svgElement('text', {x: left - 6, y: ordinate + 4, 'text-anchor': 'end'}, fmtShare(tick)));
+      }
       const path = [];
-      const points = [];
+      const dots = [];
+      const labelStride = Math.max(1, Math.ceil(64 / Math.max(1, distance)));
       let drawing = false;
-      history.forEach((row, index) => {
-        const value = metrics[key](row);
+      panel.values.forEach((value, index) => {
         if (value === null) {
           drawing = false;
           return;
         }
-        path.push(`${drawing ? 'L' : 'M'}${x(index)} ${y(value)}`);
+        const px = x(index);
+        const py = y(value);
+        const last = index === panel.values.length - 1;
+        path.push(`${drawing ? 'L' : 'M'}${px} ${py}`);
         drawing = true;
-        const dot = svgElement('circle', {class: 'point', cx: x(index), cy: y(value), r: 3.4});
-        dot.append(svgElement('title', {}, `${fmtDate(row.date)} · ${label} · ${ratio(row)}`));
-        points.push(dot);
+        dots.push(svgElement('circle', {class: 'point', cx: px, cy: py, r: 3.4}));
+        if (panel.key === 'elevated' && (last || (index % labelStride === 0 && index <= panel.values.length - 1 - labelStride))) {
+          const first = index === 0;
+          const labelX = px + (first ? 5 : last ? -4 : 0);
+          const anchor = first ? 'start' : last ? 'end' : 'middle';
+          dots.push(svgElement('text', {class: 'trend-point-label', x: labelX, y: py - 10, 'text-anchor': anchor}, fmtShare(value)));
+        }
       });
-      group.append(svgElement('path', {class: 'series', d: path.join(' ')}), ...points);
-      svg.append(group);
+      group.append(svgElement('path', {class: 'series', d: path.join(' ')}), ...dots);
+      marks.append(group);
     }
+    const stride = Math.max(1, Math.ceil(58 / Math.max(1, distance)));
+    history.forEach((row, index) => {
+      const last = index === history.length - 1;
+      if (!last && (index % stride !== 0 || index > history.length - 1 - stride)) return;
+      const anchor = last ? 'end' : index === 0 ? 'start' : 'middle';
+      marks.append(svgElement('text', {x: x(index), y: 294, 'text-anchor': anchor}, monthFormat.format(new Date(row.date))));
+    });
+    const guide = svgElement('line', {class: 'trend-guide', y1: 42, y2: 271, visibility: 'hidden', 'aria-hidden': 'true'});
+    svg.append(guide);
+    function clear() {
+      guide.setAttribute('visibility', 'hidden');
+      tip.hidden = true;
+    }
+    function show(index) {
+      const row = history[index];
+      const position = x(index);
+      guide.setAttribute('x1', position);
+      guide.setAttribute('x2', position);
+      guide.setAttribute('visibility', 'visible');
+      tip.replaceChildren(element('strong', fmtDate(row.date)));
+      for (const panel of panels) {
+        const detail = element('div');
+        detail.append(element('span', panel.label), element('strong', panel.ratio(row)));
+        tip.append(detail);
+      }
+      tip.hidden = false;
+      const tipWidth = tip.offsetWidth;
+      const target = position + tipWidth + 15 <= width ? position + 15 : position - tipWidth - 15;
+      tip.style.left = `${Math.max(0, Math.min(target, width - tipWidth))}px`;
+    }
+    const targets = history.map((row, index) => {
+      const start = index ? x(index) - distance / 2 : left - 10;
+      const end = index < history.length - 1 ? x(index) + distance / 2 : right + 10;
+      const label = [fmtDate(row.date), ...panels.map(panel => `${panel.label}: ${panel.ratio(row)}`)].join('. ');
+      const target = svgElement('rect', {class: 'month-hit', x: start, y: 32, width: end - start, height: 269, role: 'button', 'aria-label': label, tabindex: index === history.length - 1 ? 0 : -1});
+      target.addEventListener('pointerenter', () => show(index));
+      target.addEventListener('focus', () => show(index));
+      target.addEventListener('blur', clear);
+      target.addEventListener('click', () => show(index));
+      target.addEventListener('keydown', event => {
+        if (event.key === 'Escape') { clear(); return; }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(index); return; }
+        const next = {ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: history.length - 1}[event.key];
+        if (next === undefined || !targets[next]) return;
+        event.preventDefault();
+        targets.forEach((item, position) => item.setAttribute('tabindex', position === next ? 0 : -1));
+        targets[next].focus();
+      });
+      return target;
+    });
+    svg.append(...targets);
+    svg.onpointerleave = clear;
   }
   const observer = new ResizeObserver(draw);
   observer.observe(host);
@@ -297,6 +395,7 @@ function connectTrend(history) {
   return () => {
     observer.disconnect();
     svg.remove();
+    tip.remove();
   };
 }
 

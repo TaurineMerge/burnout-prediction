@@ -5,6 +5,8 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 SURVEY_WINDOW_DAYS = 28
+FORECAST_WINDOWS = 3
+MIN_FORECAST_WINDOWS = 2
 
 
 def build_overview(
@@ -20,8 +22,8 @@ def build_overview(
         "SELECT * FROM teacher_staffing WHERE started_on <= ? ORDER BY user_id", (report_date,)
     )]
 
-    def snapshot(as_of):
-        lower = (date.fromisoformat(as_of) - timedelta(days=window_days - 1)).isoformat()
+    def snapshot(as_of, days=window_days):
+        lower = (date.fromisoformat(as_of) - timedelta(days=days - 1)).isoformat()
         active = [row for row in staff if row["started_on"] <= as_of and (
             row["ended_on"] is None or row["ended_on"] > as_of
         )]
@@ -63,6 +65,8 @@ def build_overview(
     history = []
     today = date.fromisoformat(report_date)
     previous = None
+    forecast_counts = {school_id: Counter() for school_id in cohorts}
+    forecast_windows = Counter()
     if staff:
         first_date = date.fromisoformat(min(row["started_on"] for row in staff))
         previous_end = today - timedelta(days=window_days)
@@ -74,6 +78,31 @@ def build_overview(
             as_of = min(month_end, today).isoformat()
             history.append({"date": as_of, **counts(*snapshot(as_of))})
             cursor = month_end + timedelta(days=1)
+
+        for offset in range(FORECAST_WINDOWS):
+            cutoff = today - timedelta(days=offset * SURVEY_WINDOW_DAYS)
+            if cutoff - timedelta(days=SURVEY_WINDOW_DAYS - 1) < first_date:
+                break
+            window_staff, window_levels = snapshot(cutoff.isoformat(), SURVEY_WINDOW_DAYS)
+            schools_with_answers = set()
+            for row in window_staff:
+                school = row["school_id"]
+                user = row["user_id"]
+                if school in forecast_counts and user in window_levels:
+                    forecast_counts[school][window_levels[user]] += 1
+                    schools_with_answers.add(school)
+            forecast_windows.update(schools_with_answers)
+
+    for school in schools:
+        school_id = school["id"]
+        usable_windows = forecast_windows[school_id]
+        totals = forecast_counts[school_id]
+        school["forecast"] = {
+            "windows": usable_windows,
+            "surveyed": sum(totals.values()),
+            "levels": dict(totals),
+            "available": usable_windows >= MIN_FORECAST_WINDOWS,
+        }
 
     distribution = Counter(levels.values())
     workload = Counter(row["workload_fte"] for row in active)
@@ -88,6 +117,10 @@ def build_overview(
             for level, name in sorted(level_names.items())
         ],
         "schools": schools,
+        "forecast": {
+            "start": (today + timedelta(days=1)).isoformat(),
+            "end": (today + timedelta(days=SURVEY_WINDOW_DAYS)).isoformat(),
+        },
         "history": history,
         "workload": {
             "average": sum(value * count for value, count in workload.items()) / len(active)

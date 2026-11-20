@@ -51,7 +51,11 @@
       </section>
 
       <section id="schools" class="schools-block" aria-labelledby="schools-title">
-        <div class="title-line"><h2 id="schools-title">Ситуация по школам</h2><button class="info" data-info="schools" aria-label="Как читать таблицу школ"><span aria-hidden="true">i</span></button></div>
+        <div class="section-head">
+          <div class="title-line"><h2 id="schools-title">Ситуация по школам</h2><button class="info" data-info="schools" aria-label="Как читать таблицу школ"><span aria-hidden="true">i</span></button></div>
+          <div class="school-view" role="group" aria-label="Данные по школам"><button type="button" data-school-view="observed" aria-pressed="true">По опросам</button><button type="button" data-school-view="forecast" aria-pressed="false">Прогноз</button></div>
+        </div>
+        <p class="forecast-period muted" id="school-forecast-note" hidden></p>
         <div class="table-toolbar">
           <div id="stage-filters" class="stage-filters" role="group" aria-label="Стадии в сравнении школ"></div>
           <label class="filter">Сортировать <select id="school-sort">
@@ -59,7 +63,10 @@
           </select></label>
         </div>
         <div class="table-scroll" role="region" aria-label="Сравнение школ" tabindex="0"><table aria-labelledby="schools-title">
-          <thead><tr><th scope="col" data-key="name">Школа</th><th scope="col" data-key="staff">В штате</th><th scope="col" data-key="surveyed">С опросом</th><th scope="col" data-key="coverage">Охват</th><th scope="col" data-key="count">Педагогов</th><th scope="col" data-key="share">Доля</th></tr></thead>
+          <thead>
+            <tr id="observed-head"><th scope="col" data-key="name">Школа</th><th scope="col" data-key="staff">В штате</th><th scope="col" data-key="surveyed">С опросом</th><th scope="col" data-key="coverage">Охват</th><th scope="col" data-key="count">Педагогов</th><th scope="col" data-key="share">Доля</th></tr>
+            <tr id="forecast-head" hidden><th scope="col" data-key="name">Школа</th><th scope="col" data-key="surveyed">Ответов в расчёте</th><th scope="col">Периодов</th><th scope="col" data-key="share">Ожидаемая доля</th></tr>
+          </thead>
           <tbody id="school-rows"></tbody>
         </table></div>
         <div id="school-pager" class="pager"></div>
@@ -71,13 +78,9 @@
           <label class="filter"><span class="sr-only">Период динамики</span><select id="trend-range"><option value="6">6 месяцев</option><option value="12" selected>12 месяцев</option><option value="24">24 месяца</option></select></label>
         </div>
         <div class="trend-context">
-          <div class="chart-legend" aria-label="Значения за последний срез">
-            <span><i class="line-key key-elevated" aria-hidden="true"></i>Истощение или бессилие <strong id="trend-elevated"></strong></span>
-            <span><i class="line-key key-coverage" aria-hidden="true"></i>Ответили на опрос <strong id="trend-coverage"></strong></span>
-          </div>
           <button id="chart-open" class="text-action" type="button" aria-expanded="false" aria-controls="chart-values">Таблица значений</button>
         </div>
-        <div id="chart-view"><div class="chart" id="trend-chart" role="img" aria-label="Динамика выгорания и охвата опросами на общей шкале процентов"></div><p id="chart-empty" class="muted" hidden>В этом периоде нет данных.</p></div>
+        <div id="chart-view"><div class="chart" id="trend-chart" role="group" aria-label="Динамика выгорания и охвата по месяцам"></div><p id="chart-empty" class="muted" hidden>В этом периоде нет данных.</p></div>
         <div id="chart-values" hidden>
           <div class="table-scroll" tabindex="0" role="region" aria-label="Значения по месяцам"><table aria-label="Динамика по месяцам">
             <thead><tr><th scope="col">Срез</th><th scope="col">Истощение или бессилие</th><th scope="col">Ответили на опрос</th></tr></thead>

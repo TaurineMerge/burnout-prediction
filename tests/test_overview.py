@@ -62,6 +62,33 @@ class OverviewTests(unittest.TestCase):
         self.assertIsNone(people[1]["survey_stage"])
         self.assertEqual(people[0]["risk_score"], 0.65)
 
+    def test_school_forecast_uses_only_prior_complete_windows(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("CREATE TABLE teacher_staffing (user_id, school_id, started_on, ended_on, workload_fte)")
+            db.executemany("INSERT INTO teacher_staffing VALUES (?, ?, '2026-01-01', NULL, 1)", [
+                (1, 10), (2, 10), (3, 10), (4, 20),
+            ])
+            answers = {
+                1: [("2026-04-21", 0), ("2026-04-19", 2), ("2026-04-05", 3), ("2026-03-23", 3), ("2026-02-15", 1)],
+                2: [("2026-04-01", 0), ("2026-03-02", 1), ("2026-02-04", 0)],
+                3: [("2026-04-12", 1), ("2026-02-08", 2)],
+                4: [("2026-04-13", 3)],
+            }
+            surveys = {uid: [{"survey_dt": day, "burnout_level": level} for day, level in rows]
+                       for uid, rows in answers.items()}
+            report = build_overview(
+                db, "2026-04-20", {10: "А", 20: "Б"}, surveys,
+                {0: "Нет признаков", 1: "Первый", 2: "Второй", 3: "Третий"}, None, window_days=7,
+            )
+        self.assertEqual(report["forecast"], {"start": "2026-04-21", "end": "2026-05-18"})
+        self.assertEqual(report["schools"][0]["forecast"], {
+            "windows": 3, "surveyed": 8, "levels": {0: 2, 1: 3, 2: 2, 3: 1}, "available": True,
+        })
+        self.assertEqual(report["schools"][1]["forecast"], {
+            "windows": 1, "surveyed": 1, "levels": {3: 1}, "available": False,
+        })
+
     def test_legacy_database_has_no_staffing_overview(self):
         with closing(sqlite3.connect(":memory:")) as db:
             self.assertIsNone(build_overview(db, "2026-04-20", {}, {}, {}, None))

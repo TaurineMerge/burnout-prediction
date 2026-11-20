@@ -881,6 +881,7 @@ def create_app(
 
         academic_year = {
             "teachers": teacher_count,
+            "surveyed": len(latest_by_teacher),
             "schools": school_count,
             "start": period_start,
             "end": period_end,
