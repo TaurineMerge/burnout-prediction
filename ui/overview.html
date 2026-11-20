@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Обзор · Мониторинг педагогов</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/overview.css">
+  <script src="/overview.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="/overview"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>Мониторинг педагогов</a>
+      <nav aria-label="Разделы">
+        <a href="/overview" aria-current="page">Обзор</a>
+        <a href="/#teacher">Досье педагога</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <header class="report-head">
+      <div><h1>Обзор педагогов</h1><p>Свердловская область</p></div>
+      <div class="report-date"><span>Демонстрационные данные</span><time id="report-date"></time></div>
+    </header>
+    <p id="load-status" role="status">Загружаем данные обзора…</p>
+    <div id="report" hidden>
+      <dl class="metrics" aria-label="Показатели на дату отчёта">
+        <div><dt>Педагогов в штате</dt><dd id="staff-value"></dd><dd id="staff-note" class="metric-note"></dd></div>
+        <div><dt>Охват опросами</dt><dd id="coverage-value"></dd><dd id="coverage-note" class="metric-note"></dd></div>
+        <div><dt>Уровень 2+ по опросу</dt><dd id="elevated-value"></dd><dd id="elevated-note" class="metric-note"></dd></div>
+        <div><dt>Без свежего опроса</dt><dd id="missing-value"></dd><dd id="missing-note" class="metric-note"></dd></div>
+      </dl>
+      <div class="analysis-grid">
+        <section class="panel trend-panel" aria-labelledby="trend-title">
+          <div class="section-head">
+            <h2 id="trend-title">Динамика опросов</h2>
+            <div class="switch" role="group" aria-label="Показатель на графике">
+              <span class="switch-indicator" aria-hidden="true"></span>
+              <button type="button" data-metric="elevated" aria-pressed="true">Уровень 2+</button>
+              <button type="button" data-metric="coverage" aria-pressed="false">Охват</button>
+            </div>
+          </div>
+          <div class="trend-context"><strong id="trend-value"></strong><span id="trend-delta" class="delta"></span><span id="trend-sample"></span></div>
+          <div class="chart" id="trend-chart" aria-hidden="true"></div>
+          <p id="chart-empty" class="muted" hidden>Для выбранного показателя пока нет данных.</p>
+          <details class="chart-details">
+            <summary>Данные графика</summary>
+            <div class="table-scroll"><table>
+              <thead><tr><th scope="col">Дата среза</th><th scope="col">В штате</th><th scope="col">С опросом</th><th scope="col">Уровень 2+</th><th scope="col">Доля 2+</th><th scope="col">Охват</th></tr></thead>
+              <tbody id="history-rows"></tbody>
+            </table></div>
+          </details>
+        </section>
+        <section class="panel distribution" aria-labelledby="distribution-title">
+          <h2 id="distribution-title">Уровни по опросу</h2>
+          <p id="distribution-note" class="muted"></p>
+          <div id="level-bar" class="level-bar" aria-hidden="true"></div>
+          <ul id="levels" class="levels"></ul>
+        </section>
+      </div>
+      <div class="analysis-grid lower-grid">
+        <section class="panel workload" aria-labelledby="workload-title">
+          <h2 id="workload-title">Ставки педагогов</h2>
+          <p id="workload-note" class="muted"></p>
+          <ul id="workload-bars" class="workload-bars"></ul>
+        </section>
+        <section class="panel model" aria-labelledby="model-title">
+          <h2 id="model-title">Оценка модели</h2>
+          <strong id="model-value"></strong>
+          <p class="muted" id="model-note"></p>
+        </section>
+      </div>
+      <section class="schools-block" aria-labelledby="schools-title">
+        <div class="section-head">
+          <div><h2 id="schools-title">Ситуация по школам</h2><p class="muted">Доля уровня 2+ среди педагогов со свежим опросом.</p></div>
+          <label class="sort">Сортировка <select id="school-sort" aria-label="Сортировка школ">
+            <option value="share">По доле 2+</option><option value="count">По числу случаев 2+</option><option value="coverage">По охвату</option><option value="name">По названию</option>
+          </select></label>
+        </div>
+        <div class="school-table table-scroll" tabindex="0" role="region" aria-label="Таблица школ с горизонтальной прокруткой"><table aria-labelledby="schools-title">
+          <thead><tr><th scope="col">Школа</th><th scope="col">В штате</th><th scope="col">С опросом</th><th scope="col">Охват</th><th scope="col">Уровень 2+</th></tr></thead>
+          <tbody id="school-rows"></tbody>
+        </table></div>
+      </section>
+      <footer id="method-note" class="muted"></footer>
+    </div>
+  </main>
+</body>
+</html>

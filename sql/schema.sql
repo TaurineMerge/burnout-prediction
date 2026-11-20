@@ -3,6 +3,7 @@ PRAGMA foreign_keys = ON;
 
 DROP VIEW  IF EXISTS teacher_burnout_panel;
 DROP TABLE IF EXISTS user_activity_log;
+DROP TABLE IF EXISTS teacher_staffing;
 DROP TABLE IF EXISTS user_act_schedule;
 DROP TABLE IF EXISTS survey_act;
 DROP TABLE IF EXISTS burnout_type_dic;
@@ -26,6 +27,15 @@ CREATE TABLE school_dic (
 CREATE TABLE user_dic (
     user_id  INTEGER PRIMARY KEY,
     user_nm  TEXT NOT NULL
+);
+
+-- Кадровая запись. ended_on — первый день вне штата.
+CREATE TABLE teacher_staffing (
+    user_id       INTEGER PRIMARY KEY REFERENCES user_dic(user_id),
+    school_id     INTEGER NOT NULL REFERENCES school_dic(school_id),
+    workload_fte  REAL NOT NULL CHECK (workload_fte > 0),
+    started_on    TEXT NOT NULL,
+    ended_on      TEXT
 );
 
 -- Справочник классов

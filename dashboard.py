@@ -9,6 +9,15 @@ from wsgiref.simple_server import make_server
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
+from overview import build_overview
+
+_UI = Path(__file__).resolve().parent / "ui"
+_OVERVIEW_ASSETS = {
+    "/overview": ("overview.html", "text/html; charset=utf-8"),
+    "/overview.css": ("overview.css", "text/css; charset=utf-8"),
+    "/overview.js": ("overview.js", "text/javascript; charset=utf-8"),
+}
+
 
 _PAGE = """<!doctype html>
 <html lang="ru">
@@ -536,6 +545,8 @@ document.getElementById('overview-tab').addEventListener('click',()=>setPageView
 document.getElementById('teacher-tab').addEventListener('click',()=>{setPageView('teacher');loadTeacherDirectory();});
 document.getElementById('school-select').addEventListener('change',updateTeacherOptions);
 document.getElementById('teacher-select').addEventListener('change',loadTeacherDossier);
+if (window.location.hash === '#teacher') setPageView('teacher');
+if (window.location.hash === '#teacher') loadTeacherDirectory();
 load();
 </script>
 </body>
@@ -832,6 +843,10 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
             from model_risk import summarize_risk
 
             summary["model_risk"] = summarize_risk(connection, report_date)
+        overview = build_overview(
+            connection, report_date, school_names, surveys_by_teacher, burnout_type_names,
+            summary.get("model_risk"),
+        )
 
         teacher_directory = []
         teacher_details = {}
@@ -920,6 +935,15 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
 
         if path == "/api/summary":
             return json_response(start_response, "200 OK", summary)
+
+        if path in _OVERVIEW_ASSETS:
+            filename, content_type = _OVERVIEW_ASSETS[path]
+            return response(start_response, "200 OK", (_UI / filename).read_bytes(), content_type)
+
+        if path == "/api/overview":
+            if overview is None:
+                return json_response(start_response, "409 Conflict", {"error": "staffing_data_missing"})
+            return json_response(start_response, "200 OK", overview)
 
         if path == "/api/teachers":
             return json_response(
