@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Досье · Мониторинг педагогов</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/overview.css">
+  <link rel="stylesheet" href="/people.css">
+  <script src="/overview-shared.js" defer></script>
+  <script src="/dossier.js" defer></script>
+</head>
+<body>
+  <header class="wrap topbar">
+    <a class="brand" id="overview-link" href="/">Мониторинг педагогов</a>
+    <nav aria-label="Разделы"><a id="overview-nav" href="/">Обзор</a><a id="people-nav" href="/people" aria-current="location">Педагоги</a></nav>
+  </header>
+  <main class="wrap dossier">
+    <a id="back-to-people" class="dossier-back" href="/people"><span aria-hidden="true">←</span> К списку педагогов</a>
+    <p id="dossier-status" role="status" class="muted">Загружаем досье…</p>
+    <article id="dossier-content" hidden>
+      <header class="dossier-heading">
+        <div>
+          <h1 id="teacher-name"></h1>
+          <p class="dossier-meta muted"><span id="teacher-school"></span><span id="teacher-fte"></span><span id="teacher-staffing-status" hidden>Вне штата на дату</span></p>
+        </div>
+        <p id="teacher-as-of" class="muted"></p>
+      </header>
+      <section class="dossier-signals" aria-label="Текущее состояние">
+        <div class="dossier-signal">
+          <div class="title-line"><h2>Оценка модели</h2><button type="button" class="info" id="dossier-info" aria-label="Как читать оценку модели"><span aria-hidden="true">i</span></button></div>
+          <p id="teacher-risk" class="dossier-result"></p>
+          <p class="dossier-signal-note"><span id="teacher-points"></span><span id="teacher-week"></span></p>
+        </div>
+        <div class="dossier-signal">
+          <div class="title-line"><h2>Опрос за <span id="teacher-window"></span></h2></div>
+          <p id="teacher-stage" class="dossier-result"></p>
+          <p id="teacher-survey-note" class="dossier-signal-note"></p>
+        </div>
+      </section>
+      <div class="dossier-details">
+        <section class="workload" aria-labelledby="workload-title">
+          <div class="workload-heading"><h2 id="workload-title">Нагрузка по неделям</h2><span class="muted" id="workload-period"></span></div>
+          <p class="muted" id="workload-empty" hidden>За выбранные недели нет данных о нагрузке.</p>
+          <div id="workload-figure">
+            <div class="workload-legend muted">
+              <span><i class="workload-swatch scheduled" aria-hidden="true"></i>По расписанию</span>
+              <span><i class="workload-swatch logged" aria-hidden="true"></i>Активность в системе</span>
+            </div>
+            <div class="workload-chart" aria-label="Сравнение расписания и активности, в часах">
+              <div class="workload-scale" id="workload-scale" aria-hidden="true"></div>
+              <div class="workload-weeks" id="workload-weeks"></div>
+            </div>
+            <p class="workload-readout" id="workload-readout"></p>
+          </div>
+        </section>
+        <section class="survey-history" aria-labelledby="survey-history-title">
+          <h2 id="survey-history-title">История опросов</h2>
+          <p class="muted" id="survey-history-empty" hidden>На эту дату ответов нет.</p>
+          <ul id="survey-history-rows"></ul>
+          <div class="pager" id="survey-history-pager"></div>
+        </section>
+      </div>
+    </article>
+  </main>
+  <dialog id="dossier-info-dialog" aria-labelledby="dossier-info-title">
+    <div class="dialog-head"><h2 id="dossier-info-title">Оценка модели</h2><form method="dialog"><button class="close" aria-label="Закрыть">×</button></form></div>
+    <p>Модель ищет признаки истощения или бессилия по расписанию, активности и предыдущим опросам. Если балл достигает порога<span id="dossier-threshold"></span>, педагог попадает в группу риска за эту неделю.</p>
+  </dialog>
+</body>
+</html>

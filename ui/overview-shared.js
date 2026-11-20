@@ -57,7 +57,7 @@ function createPager(id, size, render) {
   function refresh() {
     const total = Math.max(1, Math.ceil(rows.length / size));
     const start = page * size;
-    render(rows.slice(start, start + size));
+    render(rows.slice(start, start + size), page);
     status.textContent = rows.length ? `${integer.format(start + 1)}–${integer.format(Math.min(start + size, rows.length))} из ${integer.format(rows.length)}` : '';
     prev.disabled = page === 0;
     next.disabled = page + 1 >= total;
@@ -65,5 +65,9 @@ function createPager(id, size, render) {
   }
   prev.addEventListener('click', () => { page--; refresh(); });
   next.addEventListener('click', () => { page++; refresh(); });
-  return values => { rows = values; page = 0; refresh(); };
+  return (values, initialPage = 0) => {
+    rows = values;
+    page = Math.max(0, Math.min(initialPage, Math.ceil(rows.length / size) - 1));
+    refresh();
+  };
 }

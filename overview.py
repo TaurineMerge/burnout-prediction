@@ -143,15 +143,23 @@ def build_review(
     people = []
     for user_id in teacher_ids:
         row = staffing.get(user_id)
+        in_staff = row is not None and row["started_on"] <= report_date and (
+            row["ended_on"] is None or row["ended_on"] > report_date
+        )
         school_id = row["school_id"] if row else None
-        latest = next((s for s in surveys.get(user_id, ()) if window_start <= s["survey_dt"] <= report_date), None)
+        latest = next((s for s in surveys.get(user_id, ()) if s["survey_dt"] <= report_date), None)
+        survey_from = max(window_start, row["started_on"]) if row else window_start
+        in_period = latest is not None and survey_from <= latest["survey_dt"]
         people.append({
             "id": user_id,
             "name": account_names.get(user_id),
             "school_id": school_id,
             "school": school_names.get(school_id),
             "fte": row["workload_fte"] if row else None,
-            "survey_stage": level_names.get(latest["burnout_level"]) if latest else None,
+            "in_staff": in_staff,
+            "survey_stage": level_names.get(latest["burnout_level"]) if in_period else None,
+            "latest_survey": latest,
+            "survey_in_period": in_period,
             "risk_score": risk_scores.get(user_id) if risk_scores is not None else None,
         })
     return sorted(people, key=lambda person: ((person["name"] or "").casefold(), person["id"]))

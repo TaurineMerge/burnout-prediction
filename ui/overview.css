@@ -184,14 +184,6 @@ dialog::backdrop { background: #172e2b59; }
 .stage-toggle { justify-content: center; width: 29px; padding: 0 4px 1px 0; border-radius: 0 999px 999px 0; font-size: 1rem; }
 .stage-toggle:disabled { opacity: .34; cursor: default; }
 .stage-toggle:disabled:hover { background: transparent; }
-.directory .report-head { flex-wrap: wrap; }
-.directory .report-head p { margin-top: 0; }
-.directory-toolbar { justify-content: start; margin: 0 0 13px; }
-.directory-toolbar .search input { min-width: 220px; margin-left: 0; }
-.directory-order { margin-left: auto; }
-.directory table { min-width: 660px; }
-.directory th a { color: var(--teal); }
-#people-status:empty { display: none; }
 #chart-values { min-height: 310px; }
 .filter select, .period-controls select {
   appearance: none; padding-inline-end: 29px; background-image: var(--chevron);
@@ -209,5 +201,4 @@ dialog::backdrop { background: #172e2b59; }
   .signal-share strong { line-height: 1.15; }
   .signal-change { font-size: .77rem; }
   .stage-metrics[data-scope='current'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .directory-order { margin-left: 0; }
 }

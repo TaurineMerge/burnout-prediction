@@ -46,8 +46,8 @@ class OverviewTests(unittest.TestCase):
     def test_review_uses_flags_and_only_fresh_survey_context(self):
         with closing(sqlite3.connect(":memory:")) as db:
             db.row_factory = sqlite3.Row
-            db.execute("CREATE TABLE teacher_staffing (user_id, school_id, workload_fte)")
-            db.execute("INSERT INTO teacher_staffing VALUES (1, 10, 1.5)")
+            db.execute("CREATE TABLE teacher_staffing (user_id, school_id, workload_fte, started_on, ended_on)")
+            db.execute("INSERT INTO teacher_staffing VALUES (1, 10, 1.5, '2026-03-01', NULL)")
             surveys = {1: [
                 {"survey_dt": "2026-04-21", "burnout_level": 3},
                 {"survey_dt": "2026-04-13", "burnout_level": 1},
@@ -60,6 +60,11 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual([person["id"] for person in people], [1, 2])
         self.assertEqual((people[0]["survey_stage"], people[0]["fte"]), ("Напряжённость", 1.5))
         self.assertIsNone(people[1]["survey_stage"])
+        self.assertEqual(people[0]["latest_survey"]["survey_dt"], "2026-04-13")
+        self.assertEqual(people[1]["latest_survey"]["survey_dt"], "2026-03-20")
+        self.assertFalse(people[1]["survey_in_period"])
+        self.assertTrue(people[0]["in_staff"])
+        self.assertFalse(people[1]["in_staff"])
         self.assertEqual(people[0]["risk_score"], 0.65)
 
     def test_school_forecast_uses_only_prior_complete_windows(self):

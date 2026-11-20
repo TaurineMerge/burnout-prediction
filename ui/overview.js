@@ -61,10 +61,11 @@ function renderSignals(report) {
     : report.model_enabled ? 'Нет оценки на эту дату' : 'Расчёт отключён');
   txt('survey-period', `${report.survey_window_days} дней · ${fmtPeriod(report.survey_from, report.date)}`);
   const url = `/people?${new URLSearchParams({date: report.date, window: report.survey_window_days})}`;
-  $('review-open').href = url;
+  $('review-open').href = `${url}&scope=risk`;
   $('review-open').hidden = !report.review_available;
   $('people-nav').href = url;
-  $('people-nav').hidden = !report.review_available;
+  $('people-nav').hidden = !report.people_available;
+  $('classic-dossier').hidden = report.people_available;
 }
 
 function renderStages(report) {
