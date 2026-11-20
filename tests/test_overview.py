@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 from contextlib import closing
 
-from overview import build_overview
+from overview import build_overview, build_review
 
 
 class OverviewTests(unittest.TestCase):
@@ -34,6 +34,25 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual([level["count"] for level in report["levels"]], [1, 0, 1, 0])
         self.assertEqual(report["workload"]["average"], 1.25)
         self.assertEqual(report["history"][0], {"date": "2026-03-31", "staff": 4, "surveyed": 2, "elevated": 2})
+        self.assertEqual(report["schools"][0]["levels"], {0: 1})
+        self.assertEqual(report["schools"][1]["levels"], {2: 1})
+
+    def test_review_uses_flags_and_only_fresh_survey_context(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("CREATE TABLE teacher_staffing (user_id, school_id, workload_fte)")
+            db.execute("INSERT INTO teacher_staffing VALUES (1, 10, 1.5)")
+            surveys = {1: [
+                {"survey_dt": "2026-04-21", "burnout_level": 3},
+                {"survey_dt": "2026-04-13", "burnout_level": 1},
+            ], 2: [{"survey_dt": "2026-03-20", "burnout_level": 3}]}
+            people = build_review(
+                db, {1: "А", 2: "Б", 3: "В"}, {10: "Школа"}, surveys,
+                {1: "Напряжённость", 3: "Бессилие"}, [1, 2], "2026-04-20",
+            )
+        self.assertEqual([person["id"] for person in people], [1, 2])
+        self.assertEqual((people[0]["survey_stage"], people[0]["fte"]), ("Напряжённость", 1.5))
+        self.assertIsNone(people[1]["survey_stage"])
 
     def test_legacy_database_has_no_staffing_overview(self):
         with closing(sqlite3.connect(":memory:")) as db:

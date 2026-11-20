@@ -40,105 +40,222 @@ function bar(className, fraction) {
   return track;
 }
 
-function renderOverview(data) {
-  const {current, levels, schools, workload, model_risk: model, history} = data;
-  $('report-date').dateTime = data.date;
-  txt('report-date', fmtDate(data.date));
-  txt('staff-value', integer.format(current.staff));
-  txt('staff-note', `Школ в срезе: ${integer.format(current.schools)}`);
-  txt('coverage-value', fmtShare(metrics.coverage(current)));
-  txt('coverage-note', `${fraction(current.surveyed, current.staff)} · за ${data.survey_window_days} дней`);
-  txt('elevated-value', fmtShare(metrics.elevated(current)));
-  txt('elevated-note', `${fraction(current.elevated, current.surveyed)} с опросом`);
-  txt('missing-value', integer.format(current.staff - current.surveyed));
-  txt('missing-note', 'Нет результата за окно опроса');
-  txt('distribution-note', current.surveyed ? `Педагогов со свежим опросом: ${integer.format(current.surveyed)}` : 'Свежих опросов в этом срезе нет.');
-  $('level-bar').replaceChildren();
-  $('level-bar').hidden = !current.surveyed;
-  $('levels').replaceChildren(...levels.map(level => {
-    const levelShare = share(level.count, current.surveyed);
-    const tone = `tone-${level.code}`;
-    if (level.count) {
-      const segment = element('span', undefined, tone);
-      segment.style.flexGrow = level.count;
-      $('level-bar').append(segment);
-    }
-    const label = element('span');
-    label.append(element('span', undefined, `swatch ${tone}`), level.name);
-    const row = element('li');
-    row.append(label, element('strong', integer.format(level.count)), element('span', fmtShare(levelShare)));
-    return row;
-  }));
+const monthDay = new Intl.DateTimeFormat('ru-RU', {day: 'numeric', month: 'long', timeZone: 'UTC'});
+const fmtPeriod = (start, end) => monthDay.formatRange(new Date(start), new Date(end));
+const formatMonth = new Intl.DateTimeFormat('ru-RU', {month: 'long', timeZone: 'UTC'});
 
-  const sortBy = {
-    share: (a, b) => (metrics.elevated(b) ?? -1) - (metrics.elevated(a) ?? -1),
-    count: (a, b) => b.elevated - a.elevated,
-    coverage: (a, b) => (metrics.coverage(b) ?? -1) - (metrics.coverage(a) ?? -1),
-    name: () => 0,
+function rowFor(label, cells) {
+  const tr = element('tr');
+  const th = element('th');
+  th.scope = 'row';
+  th.append(label);
+  tr.append(th, ...cells.map(item => {
+    const td = element('td');
+    td.append(item);
+    return td;
+  }));
+  return tr;
+}
+
+function createPager(id, size, render) {
+  const root = $(id);
+  const prev = element('button', 'Назад');
+  const next = element('button', 'Дальше');
+  const status = element('span');
+  status.setAttribute('aria-live', 'polite');
+  root.replaceChildren(prev, status, next);
+  let rows = [];
+  let page = 0;
+  function refresh() {
+    const total = Math.max(1, Math.ceil(rows.length / size));
+    const start = page * size;
+    render(rows.slice(start, start + size));
+    status.textContent = `${page + 1} / ${total}`;
+    prev.disabled = page === 0;
+    next.disabled = page + 1 >= total;
+    root.hidden = total <= 1;
+  }
+  prev.addEventListener('click', () => { page--; refresh(); });
+  next.addEventListener('click', () => { page++; refresh(); });
+  return values => { rows = values; page = 0; refresh(); };
+}
+
+function renderSignals(data) {
+  const {current, model_risk: model} = data;
+  const elevated = metrics.elevated(current);
+  txt('elevated-value', fmtShare(elevated));
+  txt('elevated-base', current.surveyed ? fraction(current.elevated, current.surveyed) : '');
+  txt('survey-coverage', `Охват ${fmtShare(metrics.coverage(current))}`);
+  if (model?.status === 'available') {
+    txt('model-value', integer.format(model.at_risk_count));
+    txt('model-base', `из ${integer.format(model.scored_count)} · ${fmtShare(share(model.at_risk_count, model.scored_count))}`);
+    txt('model-note', fmtPeriod(model.week_start, model.week_end));
+  } else {
+    txt('model-value', '—');
+    txt('model-note', model ? 'Недостаточно данных' : 'Расчёт отключён');
+  }
+  $('review-open').hidden = !data.review_available;
+  const info = {
+    model: ['Группа риска', model?.status === 'available'
+      ? `Порог модели: ${percent.format(model.threshold)}. Охват расчёта: ${fraction(model.scored_count, model.observed_count)} педагогов с активностью за неделю. Оценка помогает выбрать, с кем обсудить поддержку. Вероятность ухода из школы модель не оценивает.`
+      : 'Оценка риска доступна после расчёта модели за завершённую неделю.'],
+    survey: ['Охват опросами', `В штате ${current.staff} педагогов. У ${current.staff - current.surveyed} нет результата за последние ${data.survey_window_days} дней. Доля уровня 2+ считается среди ответивших.`],
+    stages: ['Периоды опросов', `«Учебный год» использует последний известный уровень каждого педагога во всей демонстрационной выгрузке, включая записи позже даты отчёта. Проценты считаются от всех педагогов выгрузки. «Свежие» показывает последний опрос за ${data.survey_window_days} дней на дату отчёта. Проценты считаются среди ответивших, уровень 0 доступен в этой вкладке.`],
+    schools: ['Сравнение школ', `В таблице учитываются свежие опросы. «Доля» использует число ответивших в школе, а «Охват» — число педагогов в штате. Стадию можно сменить над таблицей. Нажмите заголовок столбца для сортировки.`],
   };
-  const sort = $('school-sort');
-  function renderSchools() {
-    const sorted = [...schools].sort((a, b) => sortBy[sort.value](a, b) || a.name.localeCompare(b.name, 'ru'));
-    $('school-rows').replaceChildren(...sorted.map(school => {
-      const row = element('tr');
-      const name = element('th', school.name);
-      name.scope = 'row';
-      const risk = element('td');
-      const inner = element('div', undefined, 'school-risk');
-      const riskShare = metrics.elevated(school);
-      const label = element('span', undefined, 'school-risk-label');
-      label.append(element('strong', fmtShare(riskShare)));
-      if (school.surveyed) label.append(element('small', fraction(school.elevated, school.surveyed)));
-      inner.append(bar('risk-track', riskShare), label);
-      risk.append(inner);
-      row.append(name, element('td', integer.format(school.staff)), element('td', integer.format(school.surveyed)), element('td', fmtShare(metrics.coverage(school))), risk);
-      return row;
+  document.querySelectorAll('[data-info]').forEach(button => button.addEventListener('click', () => {
+    const [title, body] = info[button.dataset.info];
+    txt('info-title', title);
+    txt('info-body', body);
+    $('info-dialog').showModal();
+  }));
+}
+
+function connectStages(data) {
+  const {academic_year: year, current, levels} = data;
+  const buttons = [...document.querySelectorAll('#stage-switch button')];
+  function render(scope) {
+    const isYear = scope === 'year';
+    const total = isYear ? year.teachers : current.surveyed;
+    const items = isYear ? year.levels : levels;
+    const period = year.start && year.end
+      ? `${formatMonth.format(new Date(year.start))} — ${formatMonth.format(new Date(year.end))}` : '';
+    txt('stage-context', isYear
+      ? [period, `${year.months} мес.`, `${year.teachers} педагогов`, `школ: ${year.schools}`].filter(Boolean).join(' · ')
+      : `${current.surveyed} с опросом из ${current.staff} · за ${data.survey_window_days} дней`);
+    buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.scope === scope)));
+    $('stage-metrics').dataset.scope = scope;
+    $('stage-metrics').replaceChildren(...items.map(stage => {
+      const stageShare = share(stage.count, total);
+      const metric = element('li');
+      const value = element('div', undefined, 'stage-value');
+      value.append(element('strong', integer.format(stage.count), 'stage-count'), element('span',
+        isYear ? (total ? percent.format(stage.percent / 100) : '—') : fmtShare(stageShare)));
+      metric.append(element('div', stage.name, 'stage-label'), value, bar(`stage-track tone-${stage.code}`, stageShare));
+      return metric;
+    }));
+  }
+  buttons.forEach(button => button.addEventListener('click', () => render(button.dataset.scope)));
+  render('year');
+}
+
+function connectSchools(schools) {
+  const buttons = [...document.querySelectorAll('[data-sort]')];
+  const stage = $('school-stage');
+  let field = 'share';
+  let descending = true;
+  const count = row => stage.value === 'elevated' ? row.elevated : row.levels[stage.value] ?? 0;
+  const score = {
+    staff: row => row.staff, surveyed: row => row.surveyed,
+    coverage: metrics.coverage, count, share: row => share(count(row), row.surveyed),
+  };
+  function render() {
+    const sign = descending ? -1 : 1;
+    const sorted = [...schools].sort((a, b) => {
+      const byName = a.name.localeCompare(b.name, 'ru');
+      if (field === 'name') return sign * byName;
+      const x = score[field](a);
+      const y = score[field](b);
+      if (x === null || y === null) return Number(x === null) - Number(y === null) || byName;
+      return sign * (x - y) || byName;
+    });
+    $('school-rows').replaceChildren(...sorted.map(row => {
+      const part = score.share(row);
+      const risk = element('div', undefined, 'school-risk');
+      risk.append(bar('risk-track', part), element('strong', fmtShare(part)));
+      return rowFor(row.name, [integer.format(row.staff), integer.format(row.surveyed), fmtShare(metrics.coverage(row)), integer.format(count(row)), risk]);
     }));
     if (!sorted.length) {
       const row = element('tr');
-      const cell = element('td', 'На эту дату нет кадровых данных по школам.');
-      cell.colSpan = 5;
+      const cell = element('td', 'На эту дату нет данных по школам.');
+      cell.colSpan = 6;
       row.append(cell);
       $('school-rows').append(row);
     }
+    for (const button of buttons) {
+      const selected = button.dataset.sort === field;
+      const th = button.closest('th');
+      if (selected) th.setAttribute('aria-sort', descending ? 'descending' : 'ascending');
+      else th.removeAttribute('aria-sort');
+      button.querySelector('span').textContent = selected ? (descending ? '↓' : '↑') : '↕';
+    }
   }
-  sort.addEventListener('change', renderSchools);
-  renderSchools();
-
-  txt('workload-note', workload.average === null ? 'На эту дату нет данных о ставках.' : `В среднем ${decimal.format(workload.average)} ставки · педагогов: ${integer.format(workload.count)}`);
-  $('workload-bars').replaceChildren(...workload.distribution.map(group => {
-    const row = element('li');
-    row.append(element('span', decimal.format(group.fte)), bar('workload-track', share(group.count, workload.count)), element('span', integer.format(group.count)));
-    return row;
+  buttons.forEach(button => button.addEventListener('click', () => {
+    if (field === button.dataset.sort) descending = !descending;
+    else { field = button.dataset.sort; descending = field !== 'name'; }
+    render();
+    txt('schools-status', `Сортировка: ${button.firstChild.textContent.trim()}, ${descending ? 'по убыванию' : 'по возрастанию'}`);
   }));
-  if (model?.status === 'available') {
-    txt('model-value', fraction(model.at_risk_count, model.scored_count));
-    const week = dateFormat.formatRange(new Date(model.week_start), new Date(model.week_end));
-    txt('model-note', `Модель отметила риск уровня 2+. Период: ${week} С данными за неделю: ${integer.format(model.observed_count)}.`);
-  } else {
-    txt('model-value', '—');
-    txt('model-note', model ? 'Недостаточно данных для оценки.' : 'Расчёт модели отключён.');
+  stage.addEventListener('change', render);
+  render();
+}
+
+function connectDialogs(data) {
+  const showHistory = createPager('chart-pager', 6, rows => {
+    $('history-rows').replaceChildren(...rows.map(row => rowFor(fmtDate(row.date), [
+      fraction(row.surveyed, row.staff), integer.format(row.elevated),
+      fmtShare(metrics.elevated(row)), fmtShare(metrics.coverage(row)),
+    ])));
+  });
+  $('chart-open').addEventListener('click', () => {
+    showHistory([...data.history].reverse());
+    $('chart-dialog').showModal();
+  });
+
+  if (!data.review_available) return;
+  const school = $('review-school');
+  let people = null;
+  const showPeople = createPager('review-pager', 8, rows => {
+    $('review-rows').replaceChildren(...rows.map(person => {
+      const name = element('a', person.name || `Педагог ${person.id}`);
+      name.href = `/classic?user_id=${encodeURIComponent(person.id)}#teacher`;
+      return rowFor(name, [person.school || '—', person.survey_stage || 'Нет ответа', person.fte === null ? '—' : decimal.format(person.fte)]);
+    }));
+  });
+  function filterPeople() {
+    const filtered = people.filter(person => school.value === 'all' || String(person.school_id) === school.value);
+    txt('review-status', filtered.length ? '' : 'В этой школе нет отмеченных педагогов.');
+    $('review-table').hidden = !filtered.length;
+    showPeople(filtered);
   }
+  school.addEventListener('change', () => { if (people) filterPeople(); });
+  $('review-open').addEventListener('click', async () => {
+    $('review-dialog').showModal();
+    if (people) return;
+    txt('review-status', 'Загружаем список…');
+    try {
+      const response = await fetch('/api/overview/review');
+      if (!response.ok) throw new Error('Review list unavailable');
+      people = (await response.json()).people;
+      const schools = new Map(people.filter(p => p.school_id !== null).map(p => [p.school_id, p.school]));
+      for (const [id, name] of [...schools].sort((a, b) => a[1].localeCompare(b[1], 'ru'))) {
+        school.add(new Option(name, id));
+      }
+      filterPeople();
+    } catch (error) {
+      txt('review-status', 'Список не загрузился. Закройте окно и попробуйте снова.');
+    }
+  });
+}
 
-  $('history-rows').replaceChildren(...history.map(row => {
-    const tr = element('tr');
-    const name = element('th', fmtDate(row.date));
-    name.scope = 'row';
-    tr.append(name, ...[row.staff, row.surveyed, row.elevated].map(x => element('td', integer.format(x))), element('td', fmtShare(metrics.elevated(row))), element('td', fmtShare(metrics.coverage(row))));
-    return tr;
-  }));
-  txt('method-note', `Срез на дату отчёта. По каждому педагогу учитывается последний опрос за ${data.survey_window_days} дней. Ставки взяты из демонстрационного кадрового реестра.`);
+function renderOverview(data) {
+  $('report-date').dateTime = data.date;
+  txt('report-date', fmtDate(data.date));
+  renderSignals(data);
+  connectStages(data);
+  connectSchools(data.schools);
+  connectDialogs(data);
   $('report').hidden = false;
   $('load-status').hidden = true;
-  connectStatCard(history);
+  connectStatCard(data.history);
 }
 
 function connectStatCard(history) {
   // Parameters from DesignBookmark's stat.js. The demo springs were defined there,
   // independently of the generic spring tokens shared by the motion gallery.
-  const springs = {point: [200, 17], value: [160, 22], indicator: [380, 30]};
+  const springs = {point: [200, 17], indicator: [380, 30]};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const buttons = [...document.querySelectorAll('.switch button')];
+  const buttons = [...document.querySelectorAll('#trend-switch button')];
   const indicator = document.querySelector('.switch-indicator');
   const host = $('trend-chart');
   const svg = svgElement('svg');
@@ -158,8 +275,6 @@ function connectStatCard(history) {
   let previousTime = 0;
   let width = 0;
   let points = [];
-  let value = null;
-  let delta = null;
   const baseline = 157;
 
   function geometry(index) {
@@ -190,8 +305,6 @@ function connectStatCard(history) {
 
   function paint() {
     indicator.style.transform = `translateX(${shift.x}px) scaleX(${size.x})`;
-    txt('trend-value', fmtShare(value ? Math.min(1, Math.max(0, value.x)) : null));
-    txt('trend-delta', delta ? `${pp.format(delta.x)} п. п.` : '');
     const segments = [];
     let segment = [];
     points.forEach((point, index) => {
@@ -217,7 +330,7 @@ function connectStatCard(history) {
   function animate(now) {
     const dt = previousTime ? Math.min((now - previousTime) / 1000, 1 / 30) : 1 / 60;
     previousTime = now;
-    const active = [shift, size, value, delta, ...points].filter(Boolean);
+    const active = [shift, size, ...points].filter(Boolean);
     let moving = false;
     for (const s of active) {
       for (let substep = 0; substep < 4; substep++) {
@@ -247,14 +360,8 @@ function connectStatCard(history) {
     const latest = series.at(-1) ?? null;
     const prev = series.at(-2) ?? null;
     const change = latest === null || prev === null ? null : (latest - prev) * 100;
-    value = latest === null ? null : value || spring(latest, springs.value);
-    delta = change === null ? null : delta || spring(change, springs.value);
-    if (value) value.target = latest;
-    if (delta) delta.target = change;
-    const row = history.at(-1);
-    txt('trend-sample', row && latest !== null ? (metric === 'elevated' ? `${fraction(row.elevated, row.surveyed)} с опросом` : `${fraction(row.surveyed, row.staff)} в штате`) : '');
-    $('trend-delta').title = change === null ? '' : 'Изменение к предыдущему срезу';
-    $('trend-value').setAttribute('aria-label', fmtShare(latest));
+    txt('trend-value', fmtShare(latest));
+    txt('trend-delta', change === null ? '' : `${pp.format(change)} п. п. к прошлому срезу`);
     host.hidden = !series.some(x => x !== null);
     $('chart-empty').hidden = !host.hidden;
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.metric === metric)));
@@ -267,7 +374,7 @@ function connectStatCard(history) {
       cancelAnimationFrame(frame);
       frame = 0;
       previousTime = 0;
-      for (const s of [shift, size, value, delta, ...points].filter(Boolean)) {
+      for (const s of [shift, size, ...points].filter(Boolean)) {
         s.x = s.target;
         s.velocity = 0;
       }

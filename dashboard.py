@@ -9,7 +9,7 @@ from wsgiref.simple_server import make_server
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
-from overview import build_overview
+from overview import build_overview, build_review
 
 _UI = Path(__file__).resolve().parent / "ui"
 _OVERVIEW_ASSETS = {
@@ -545,15 +545,28 @@ document.getElementById('overview-tab').addEventListener('click',()=>setPageView
 document.getElementById('teacher-tab').addEventListener('click',()=>{setPageView('teacher');loadTeacherDirectory();});
 document.getElementById('school-select').addEventListener('change',updateTeacherOptions);
 document.getElementById('teacher-select').addEventListener('change',loadTeacherDossier);
-if (window.location.hash === '#teacher') setPageView('teacher');
-if (window.location.hash === '#teacher') loadTeacherDirectory();
+if (window.location.hash === '#teacher') {
+    setPageView('teacher');
+    loadTeacherDirectory().then(() => {
+        const userId = new URLSearchParams(window.location.search).get('user_id');
+        if (!userId || !teacherDirectoryLoaded) return;
+        document.getElementById('school-select').value = 'all';
+        updateTeacherOptions();
+        const teacher = document.getElementById('teacher-select');
+        teacher.value = userId;
+        if (teacher.value) loadTeacherDossier();
+    });
+}
 load();
 </script>
 </body>
 </html>"""
 
 
-def create_app(database: str | Path, *, fact_through: str | None = None, model_risk: bool = False):
+def create_app(
+    database: str | Path, *, fact_through: str | None = None, model_risk: bool = False,
+    overview_preview: bool = False,
+):
     if fact_through is None:
         config_path = Path(__file__).resolve().parent / "config" / "dashboard.json"
         with config_path.open(encoding="utf-8") as config_file:
@@ -839,14 +852,34 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
                 for level in sorted(stage_names)
             ],
         }
+        flagged_teachers = [] if overview_preview else None
         if model_risk:
             from model_risk import summarize_risk
 
-            summary["model_risk"] = summarize_risk(connection, report_date)
+            summary["model_risk"] = summarize_risk(connection, report_date, at_risk_ids=flagged_teachers)
         overview = build_overview(
             connection, report_date, school_names, surveys_by_teacher, burnout_type_names,
             summary.get("model_risk"),
         )
+        review = None
+        if overview is not None:
+            overview["academic_year"] = {
+                "teachers": teacher_count,
+                "schools": school_count,
+                "months": len(months),
+                "start": period_start,
+                "end": period_end,
+                "levels": [
+                    {"code": row["level"], "name": row["name"], "count": row["count"], "percent": row["percent"]}
+                    for row in summary["stages"]
+                ],
+            }
+            if flagged_teachers is not None and summary.get("model_risk", {}).get("status") == "available":
+                review = build_review(
+                    connection, teacher_names, school_names, surveys_by_teacher, burnout_type_names,
+                    flagged_teachers, report_date,
+                )
+            overview["review_available"] = review is not None
 
         teacher_directory = []
         teacher_details = {}
@@ -930,7 +963,10 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
             return json_response(start_response, "405 Method Not Allowed", {"error": "method not allowed"})
 
         path = environ.get("PATH_INFO", "/")
-        if path == "/":
+        if path == "/" and overview_preview:
+            path = "/overview"
+
+        if path in {"/", "/classic"}:
             return response(start_response, "200 OK", _PAGE, "text/html; charset=utf-8")
 
         if path == "/api/summary":
@@ -944,6 +980,9 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
             if overview is None:
                 return json_response(start_response, "409 Conflict", {"error": "staffing_data_missing"})
             return json_response(start_response, "200 OK", overview)
+
+        if path == "/api/overview/review" and review is not None:
+            return json_response(start_response, "200 OK", {"people": review})
 
         if path == "/api/teachers":
             return json_response(
@@ -984,8 +1023,11 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="defaults to loopback; do not expose without HTTPS/auth")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--model-risk", action="store_true", help="assess the latest complete week with Random Forest")
+    parser.add_argument("--overview-preview", action="store_true", help="open the new synthetic overview at the root")
     args = parser.parse_args()
-    app = create_app(args.database, model_risk=args.model_risk)
+    if args.overview_preview and args.host not in {"127.0.0.1", "localhost"}:
+        parser.error("--overview-preview is available only on loopback for synthetic data")
+    app = create_app(args.database, model_risk=args.model_risk, overview_preview=args.overview_preview)
     with make_server(args.host, args.port, app) as server:
         print(f"Dashboard listening at http://{args.host}:{args.port}")
         server.serve_forever()
