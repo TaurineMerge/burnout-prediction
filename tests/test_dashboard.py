@@ -232,7 +232,7 @@ class DashboardReadOnlyTests(unittest.TestCase):
             'id="location-label"',
             'class="kpi-grid"',
             'id="stage-cards"',
-            'id="model-accuracy"',
+            'id="model-risk-count"',
             "Overview",
             "Школа",
         ):
@@ -436,21 +436,23 @@ class DashboardReadOnlyTests(unittest.TestCase):
         self.assertIn("min-height:82px", page)
         self.assertIn("width:38px;height:38px;flex:0 0 38px", page)
 
-    def test_model_accuracy_is_shown_as_an_uncomputed_placeholder(self):
+    def test_model_risk_is_optional_and_has_a_status(self):
         _, body = self.request("/")
         page = body.decode("utf-8")
 
-        self.assertIn("Оценочная точность модели", page)
-        self.assertIn('id="model-accuracy"', page)
-        self.assertIn("Будет доступна после подключения модели", page)
+        self.assertIn("Риск уровня ≥ 2 по модели", page)
+        self.assertIn('id="model-risk-count"', page)
+        self.assertIn('id="model-risk-note"', page)
+        self.assertIn("Расчёт отключён", page)
+        _, summary = self.request("/api/summary")
+        self.assertNotIn("model_risk", json.loads(summary))
 
-    def test_accuracy_card_matches_teacher_card_composition(self):
+    def test_model_risk_card_keeps_compact_layout(self):
         _, body = self.request("/")
         page = body.decode("utf-8")
 
-        self.assertIn('class="accuracy-icon"', page)
+        self.assertIn('class="kpi-card accuracy-card"', page)
         self.assertIn(".accuracy-card{display:flex;min-height:82px", page)
-        self.assertLess(page.index('class="accuracy-icon"'), page.index('id="model-accuracy"'))
 
     def test_kpi_grid_uses_five_columns_and_collapses_on_smaller_screens(self):
         _, body = self.request("/")
