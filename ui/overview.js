@@ -13,16 +13,18 @@ function svgElement(tag, attrs = {}, text) {
 }
 
 const scopeOptions = $('stage-period');
+const stageNames = {'0': 'Нет признаков', '1': 'Напряжённость', '2': 'Истощение', '3': 'Бессилие'};
 const activeStages = new Set(['2', '3']);
 let currentReport;
 let stopChart = () => {};
 let fetchRequest;
 
 const help = {
-  model: ['Риск выгорания по модели', 'Модель учитывает активность, расписание и прошлые опросы. В группу риска входят педагоги, для которых оценка выше порога. Доля считается среди всех оценённых педагогов. Изменение сравнивается с предыдущей завершённой неделей.'],
-  survey: ['Результаты опросов', 'В числителе педагоги с истощением или бессилием по последнему опросу за выбранный период. В знаменателе все ответившие за этот период. Изменение сравнивается с предыдущим окном той же длины.'],
-  stages: ['Доли по стадиям', 'За учебный год доля считается от всех педагогов в годовом отчёте. На дату обзора доля считается среди ответивших за выбранное окно опросов.'],
-  schools: ['Сравнение школ', 'Охват показывает долю ответивших от текущего штата школы. Число педагогов и доля справа относятся к выбранным стадиям. Доля считается среди ответивших.'],
+  model: ['Риск выгорания по модели', 'Оценка относится к последней полной неделе с понедельника по воскресенье на дату обзора. Доля считается среди оценённых педагогов, изменение — к предыдущей неделе.'],
+  survey: ['Результаты опросов', 'Окно опросов заканчивается датой обзора включительно. Учитывается последний ответ каждого педагога за это окно. Доля считается среди ответивших, изменение — к предыдущему окну той же длины.'],
+  stages: ['Доли по стадиям', 'За учебный год доля считается от всех педагогов в годовом отчёте. За окно опросов доля считается среди ответивших за этот период.'],
+  schools: ['Сравнение школ', 'Нажмите название стадии, чтобы оставить только её. Плюс добавляет стадию, крестик снимает. Цвет каждого сегмента соответствует стадии, его длина — её доле среди ответивших. Охват считается от штата школы.'],
+  trend: ['Как сравнивать линии', 'Сплошная линия показывает долю истощения или бессилия среди ответивших. Пунктир показывает долю ответивших среди педагогов. Сравнение помогает заметить изменение охвата, но по агрегатам нельзя узнать, кто перестал отвечать.'],
 };
 for (const button of document.querySelectorAll('[data-info]')) {
   button.addEventListener('click', () => {
@@ -52,9 +54,9 @@ function renderSignals(report) {
   const {current, previous, model_risk: model, previous_model_risk: prior} = report;
   writeSignal('model', model?.at_risk_count, model?.scored_count, modelShare(model), modelShare(prior));
   writeSignal('elevated', current.elevated, current.surveyed, metrics.elevated(current), previous ? metrics.elevated(previous) : null);
-  txt('model-note', model?.status === 'available' ? fmtPeriod(model.week_start, model.week_end)
+  txt('model-note', model?.status === 'available' ? `Полная неделя · ${fmtPeriod(model.week_start, model.week_end)}`
     : report.model_enabled ? 'Нет оценки на эту дату' : 'Расчёт отключён');
-  txt('survey-period', fmtPeriod(report.survey_from, report.date));
+  txt('survey-period', `${report.survey_window_days} дней · ${fmtPeriod(report.survey_from, report.date)}`);
   const url = `/people?${new URLSearchParams({date: report.date, window: report.survey_window_days})}`;
   $('review-open').href = url;
   $('review-open').hidden = !report.review_available;
@@ -68,8 +70,9 @@ function renderStages(report) {
   const total = fullYear ? year.teachers : current.surveyed;
   const items = fullYear ? year.levels : levels;
   scopeOptions.options[0].textContent = year.start && year.end
-    ? `${formatMonth.format(new Date(year.start))} — ${formatMonth.format(new Date(year.end))}` : 'Учебный год';
-  txt('scope-people', integer.format(total));
+    ? `Учебный год · ${formatMonth.format(new Date(year.start))} — ${formatMonth.format(new Date(year.end))}` : 'Учебный год';
+  scopeOptions.options[1].textContent = `Окно опросов · ${report.survey_window_days} дней`;
+  txt('scope-people', fullYear ? integer.format(total) : fraction(current.surveyed, current.staff));
   txt('scope-base-label', fullYear ? 'всего педагогов' : 'ответили на опрос');
   txt('scope-schools', integer.format(fullYear ? year.schools : current.schools));
   $('stage-metrics').dataset.scope = fullYear ? 'year' : 'current';
@@ -87,10 +90,33 @@ function renderStages(report) {
 }
 scopeOptions.addEventListener('change', () => { if (currentReport) renderStages(currentReport); });
 
+function schoolStack(school, stages) {
+  const track = element('span', undefined, 'risk-track');
+  if (!school.surveyed) {
+    track.setAttribute('aria-hidden', 'true');
+    return track;
+  }
+  const details = stages.map(code => {
+    const part = share(school.levels[code] ?? 0, school.surveyed);
+    const label = `${stageNames[code]}: ${fmtShare(part)}`;
+    if (part > 0) {
+      const segment = element('span', undefined, `stage-color tone-${code}`);
+      segment.style.width = `${part * 100}%`;
+      segment.title = label;
+      segment.setAttribute('aria-hidden', 'true');
+      track.append(segment);
+    }
+    return label;
+  });
+  track.setAttribute('role', 'img');
+  track.setAttribute('aria-label', details.join(', '));
+  return track;
+}
+
 const showSchools = createPager('school-pager', 8, rows => {
   $('school-rows').replaceChildren(...rows.map(({school, count, part}) => {
     const risk = element('div', undefined, 'school-risk');
-    risk.append(bar('risk-track', part), element('strong', fmtShare(part)));
+    risk.append(schoolStack(school, [...activeStages].sort()), element('strong', fmtShare(part)));
     return rowFor(school.name, [integer.format(school.staff), integer.format(school.surveyed), fmtShare(metrics.coverage(school)), integer.format(count), risk]);
   }));
   if (!rows.length) {
@@ -126,26 +152,63 @@ function renderSchools(schools) {
   });
   showSchools(rows);
 }
-for (const button of document.querySelectorAll('[data-stage]')) {
-  button.addEventListener('click', () => {
-    const stage = button.dataset.stage;
-    if (activeStages.has(stage)) {
-      if (activeStages.size === 1) return;
-      activeStages.delete(stage);
-    } else {
-      activeStages.add(stage);
-    }
-    button.setAttribute('aria-pressed', String(activeStages.has(stage)));
-    if (currentReport) renderSchools(currentReport.schools);
-  });
+const stageChips = new Map();
+function updateChips() {
+  for (const [code, {chip, single, toggle}] of stageChips) {
+    const selected = activeStages.has(code);
+    chip.dataset.selected = selected;
+    single.setAttribute('aria-pressed', String(selected && activeStages.size === 1));
+    toggle.textContent = selected ? '×' : '+';
+    toggle.title = `${selected ? 'Убрать' : 'Добавить'}: ${stageNames[code]}`;
+    toggle.setAttribute('aria-label', toggle.title);
+    toggle.disabled = selected && activeStages.size === 1;
+  }
+  if (currentReport) renderSchools(currentReport.schools);
 }
+
+for (const code of ['1', '2', '3', '0']) {
+  const chip = element('span', undefined, 'stage-chip');
+  const single = element('button', undefined, 'stage-single');
+  const dot = element('span', undefined, `stage-dot stage-color tone-${code}`);
+  dot.setAttribute('aria-hidden', 'true');
+  single.append(dot, stageNames[code]);
+  single.title = `Только: ${stageNames[code]}`;
+  single.setAttribute('aria-label', single.title);
+  const toggle = element('button', undefined, 'stage-toggle');
+  single.addEventListener('click', () => {
+    activeStages.clear();
+    activeStages.add(code);
+    updateChips();
+  });
+  toggle.addEventListener('click', () => {
+    if (activeStages.has(code)) activeStages.delete(code);
+    else activeStages.add(code);
+    updateChips();
+  });
+  chip.append(single, toggle);
+  $('stage-filters').append(chip);
+  stageChips.set(code, {chip, single, toggle});
+}
+updateChips();
 $('school-sort').addEventListener('change', () => { if (currentReport) renderSchools(currentReport.schools); });
 
 const showHistory = createPager('chart-pager', 6, rows => {
   $('history-rows').replaceChildren(...rows.map(row => rowFor(fmtDate(row.date), [
-    fraction(row.surveyed, row.staff), fmtShare(metrics.elevated(row)), fmtShare(metrics.coverage(row)),
+    ratioWithShare(row.elevated, row.surveyed), ratioWithShare(row.surveyed, row.staff),
   ])));
 });
+const ratioWithShare = (count, total) => total ? `${fraction(count, total)} (${fmtShare(share(count, total))})` : '—';
+
+function renderTrend() {
+  const history = currentReport.history.slice(-Number($('trend-range').value));
+  const latest = history.at(-1);
+  txt('trend-elevated', fmtShare(latest ? metrics.elevated(latest) : null));
+  txt('trend-coverage', fmtShare(latest ? metrics.coverage(latest) : null));
+  showHistory([...history].reverse());
+  stopChart();
+  stopChart = connectTrend(history);
+}
+$('trend-range').addEventListener('change', () => { if (currentReport) renderTrend(); });
 $('chart-open').addEventListener('click', () => {
   const showTable = $('chart-values').hidden;
   $('chart-values').hidden = !showTable;
@@ -165,155 +228,73 @@ function renderOverview(report) {
   renderSignals(report);
   renderStages(report);
   renderSchools(report.schools);
-  showHistory([...report.history].reverse());
-  stopChart();
-  stopChart = connectStatCard(report.history);
+  renderTrend();
 }
 
-function connectStatCard(history) {
-  // Parameters from the DesignBookmark Stat Card.
-  const springs = {point: [200, 17], indicator: [380, 30]};
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const buttons = [...document.querySelectorAll('#trend-switch button')];
-  const indicator = document.querySelector('.switch-indicator');
+function connectTrend(history) {
   const host = $('trend-chart');
-  const svg = svgElement('svg');
-  const axis = svgElement('g');
-  const area = svgElement('path', {class: 'area'});
-  const stroke = svgElement('path', {class: 'series'});
-  const dots = svgElement('g');
-  svg.append(axis, area, stroke, dots);
-  host.append(svg);
+  const series = [
+    {key: 'elevated', label: 'Истощение или бессилие', ratio: row => ratioWithShare(row.elevated, row.surveyed)},
+    {key: 'coverage', label: 'Ответили на опрос', ratio: row => ratioWithShare(row.surveyed, row.staff)},
+  ];
+  const hasPoints = history.some(row => series.some(({key}) => metrics[key](row) !== null));
+  host.hidden = !hasPoints;
+  $('chart-empty').hidden = hasPoints;
+  if (!hasPoints) return () => {};
 
-  const spring = (x, [k, c]) => ({x, target: x, velocity: 0, k, c});
-  const shift = spring(0, springs.indicator);
-  const size = spring(1, springs.indicator);
-  let metric = buttons.find(button => button.getAttribute('aria-pressed') === 'true').dataset.metric;
-  let ceiling = 1;
-  let frame = 0;
-  let previousTime = 0;
+  const svg = svgElement('svg', {'aria-hidden': 'true'});
+  host.replaceChildren(svg);
+  const top = 14;
+  const bottom = 192;
+  const left = 42;
   let width = 0;
-  let points = [];
-  const baseline = 157;
 
-  function geometry(index) {
-    return 40 + index * (width - 58) / Math.max(1, history.length - 1);
-  }
-
-  function drawAxes() {
-    svg.setAttribute('viewBox', `0 0 ${width} 196`);
-    axis.replaceChildren();
-    for (let tick = 0; tick <= 4; tick++) {
-      const y = baseline - tick * (baseline - 12) / 4;
-      axis.append(svgElement('line', {class: 'gridline', x1: 40, x2: width - 17, y1: y, y2: y}));
-      axis.append(svgElement('text', {x: 34, y: y + 4, 'text-anchor': 'end'}, fmtShare(ceiling * tick / 4)));
+  function draw() {
+    const measured = host.clientWidth;
+    if (measured === 0 || measured === width) return;
+    width = measured;
+    const right = width - 18;
+    const x = index => left + (right - left) * index / Math.max(1, history.length - 1);
+    const y = value => bottom - value * (bottom - top);
+    svg.setAttribute('viewBox', `0 0 ${width} 232`);
+    svg.replaceChildren();
+    for (let tick = 0; tick <= 5; tick++) {
+      const ordinate = y(tick / 5);
+      svg.append(svgElement('line', {class: 'gridline', x1: left, x2: right, y1: ordinate, y2: ordinate}));
+      svg.append(svgElement('text', {x: left - 6, y: ordinate + 4, 'text-anchor': 'end'}, percent.format(tick / 5)));
     }
-    const stride = Math.max(1, Math.ceil((history.length - 1) / Math.max(1, Math.floor((width - 58) / 58))));
+    const stride = Math.max(1, Math.ceil((history.length - 1) / Math.max(1, Math.floor((right - left) / 58))));
     history.forEach((row, index) => {
       const last = index === history.length - 1;
-      if ((!last && index % stride !== 0) || (!last && index > history.length - 1 - stride)) return;
-      axis.append(svgElement('text', {x: geometry(index), y: 180, 'text-anchor': last ? 'end' : index === 0 ? 'start' : 'middle'}, monthFormat.format(new Date(row.date))));
+      if (!last && (index % stride !== 0 || index > history.length - 1 - stride)) return;
+      const anchor = last ? 'end' : index === 0 ? 'start' : 'middle';
+      svg.append(svgElement('text', {x: x(index), y: 216, 'text-anchor': anchor}, monthFormat.format(new Date(row.date))));
     });
-    dots.replaceChildren(...history.map(row => {
-      const dot = svgElement('circle', {class: 'point', r: 3.5});
-      const sample = metric === 'elevated' ? fraction(row.elevated, row.surveyed) : fraction(row.surveyed, row.staff);
-      dot.append(svgElement('title', {}, `${fmtDate(row.date)} · ${fmtShare(metrics[metric](row))} · ${sample}`));
-      return dot;
-    }));
-  }
-
-  function paint() {
-    indicator.style.transform = `translateX(${shift.x}px) scaleX(${size.x})`;
-    const segments = [];
-    let segment = [];
-    points.forEach((point, index) => {
-      const dot = dots.children[index];
-      dot.style.display = point ? '' : 'none';
-      if (!point) {
-        if (segment.length) segments.push(segment);
-        segment = [];
-        return;
-      }
-      const x = geometry(index);
-      const y = baseline - Math.max(0, Math.min(1, point.x)) * (baseline - 12);
-      dot.setAttribute('cx', x);
-      dot.setAttribute('cy', y);
-      segment.push([x, y]);
-    });
-    if (segment.length) segments.push(segment);
-    const line = group => group.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ');
-    stroke.setAttribute('d', segments.map(line).join(' '));
-    area.setAttribute('d', segments.map(group => `${line(group)} L${group.at(-1)[0]} ${baseline} L${group[0][0]} ${baseline} Z`).join(' '));
-  }
-
-  function animate(now) {
-    const dt = previousTime ? Math.min((now - previousTime) / 1000, 1 / 30) : 1 / 60;
-    previousTime = now;
-    const active = [shift, size, ...points].filter(Boolean);
-    let moving = false;
-    for (const s of active) {
-      for (let substep = 0; substep < 4; substep++) {
-        s.velocity += (s.k * (s.target - s.x) - s.c * s.velocity) * dt / 4;
-        s.x += s.velocity * dt / 4;
-      }
-      if (Math.abs(s.x - s.target) < 0.0005 && Math.abs(s.velocity) < 0.002) {
-        s.x = s.target;
-        s.velocity = 0;
-      } else {
-        moving = true;
-      }
-    }
-    paint();
-    frame = moving ? requestAnimationFrame(animate) : 0;
-    if (!frame) previousTime = 0;
-  }
-
-  function select(next, immediate = false) {
-    metric = next;
-    const series = history.map(metrics[metric]);
-    const max = Math.max(0, ...series.filter(x => x !== null));
-    ceiling = metric === 'coverage' ? 1 : Math.max(.2, Math.ceil(max * 5) / 5);
-    const targetSeries = series.map(x => x === null ? null : x / ceiling);
-    points = targetSeries.map((x, i) => x === null ? null : points[i] || spring(x, springs.point));
-    points.forEach((point, i) => { if (point) point.target = targetSeries[i]; });
-    const latest = series.at(-1) ?? null;
-    const prev = series.at(-2) ?? null;
-    const change = latest === null || prev === null ? null : (latest - prev) * 100;
-    txt('trend-value', fmtShare(latest));
-    txt('trend-delta', change === null ? '' : `${pp.format(change)} п. п. к прошлому срезу`);
-    host.hidden = !series.some(x => x !== null);
-    $('chart-empty').hidden = !host.hidden;
-    buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.metric === metric)));
-    const activeButton = buttons.find(button => button.dataset.metric === metric);
-    shift.target = activeButton.offsetLeft;
-    size.target = activeButton.offsetWidth;
-    width = Math.max(200, host.clientWidth);
-    drawAxes();
-    if (immediate || reduced.matches) {
-      cancelAnimationFrame(frame);
-      frame = 0;
-      previousTime = 0;
-      for (const s of [shift, size, ...points].filter(Boolean)) {
-        s.x = s.target;
-        s.velocity = 0;
-      }
-      paint();
-    } else if (!frame) {
-      frame = requestAnimationFrame(animate);
+    for (const {key, label, ratio} of series) {
+      const group = svgElement('g', {class: `trend-${key}`});
+      const path = [];
+      const points = [];
+      let drawing = false;
+      history.forEach((row, index) => {
+        const value = metrics[key](row);
+        if (value === null) {
+          drawing = false;
+          return;
+        }
+        path.push(`${drawing ? 'L' : 'M'}${x(index)} ${y(value)}`);
+        drawing = true;
+        const dot = svgElement('circle', {class: 'point', cx: x(index), cy: y(value), r: 3.4});
+        dot.append(svgElement('title', {}, `${fmtDate(row.date)} · ${label} · ${ratio(row)}`));
+        points.push(dot);
+      });
+      group.append(svgElement('path', {class: 'series', d: path.join(' ')}), ...points);
+      svg.append(group);
     }
   }
-
-  buttons.forEach(button => { button.onclick = () => select(button.dataset.metric); });
-  const preferenceChange = () => select(metric, true);
-  reduced.addEventListener('change', preferenceChange);
-  const observer = new ResizeObserver(() => {
-    if (host.clientWidth > 0 && width !== host.clientWidth) select(metric, true);
-  });
+  const observer = new ResizeObserver(draw);
   observer.observe(host);
-  select(metric, true);
+  draw();
   return () => {
-    cancelAnimationFrame(frame);
-    reduced.removeEventListener('change', preferenceChange);
     observer.disconnect();
     svg.remove();
   };

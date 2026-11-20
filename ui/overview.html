@@ -26,12 +26,17 @@
     <div id="report" hidden>
       <section class="signals" aria-label="Состояние на дату отчёта">
         <div class="model-signal">
-          <div class="signal-head"><div class="title-line"><h2>Риск выгорания по модели</h2><button class="info" data-info="model" aria-label="Как рассчитана группа риска"><span aria-hidden="true">i</span></button></div><p class="signal-meta" id="model-note"></p></div>
+          <div class="signal-head">
+            <div class="title-line"><h2>Риск выгорания по модели</h2><a id="review-open" class="signal-link" href="/people" aria-label="К списку педагогов" title="К списку педагогов" hidden>→</a></div>
+            <div class="signal-period"><p class="signal-meta" id="model-note"></p><button class="info" data-info="model" aria-label="Как рассчитана группа риска"><span aria-hidden="true">i</span></button></div>
+          </div>
           <div class="signal-values"><div><strong class="hero-number" id="model-value"></strong><span class="number-context" id="model-base"></span></div><div class="signal-share"><strong id="model-share"></strong><span class="signal-change" id="model-change"></span></div></div>
-          <a id="review-open" class="action" href="/people" hidden>К списку педагогов <span aria-hidden="true">↗</span></a>
         </div>
         <div class="survey-signal">
-          <div class="signal-head"><div class="title-line"><h2>Истощение или бессилие по опросам</h2><button class="info" data-info="survey" aria-label="Как посчитаны результаты опросов"><span aria-hidden="true">i</span></button></div><p class="signal-meta" id="survey-period"></p></div>
+          <div class="signal-head">
+            <h2>Истощение или бессилие по опросам</h2>
+            <div class="signal-period"><p class="signal-meta" id="survey-period"></p><button class="info" data-info="survey" aria-label="Как посчитаны результаты опросов"><span aria-hidden="true">i</span></button></div>
+          </div>
           <div class="signal-values"><div><strong class="hero-number" id="elevated-value"></strong><span class="number-context" id="elevated-base"></span></div><div class="signal-share"><strong id="elevated-share"></strong><span class="signal-change" id="elevated-change"></span></div></div>
         </div>
       </section>
@@ -39,7 +44,7 @@
       <section class="stages" aria-labelledby="stage-title">
         <div class="section-head">
           <div class="title-line"><h2 id="stage-title">Стадии по опросам</h2><button class="info" data-info="stages" aria-label="Как сравнивать периоды опросов"><span aria-hidden="true">i</span></button></div>
-          <label class="filter"><span class="sr-only">Период для стадий</span><select id="stage-period"><option value="year">Учебный год</option><option value="current">По дате обзора</option></select></label>
+          <label class="filter"><span class="sr-only">Период для стадий</span><select id="stage-period"><option value="year">Весь учебный год</option><option value="current">За окно опросов</option></select></label>
         </div>
         <div class="scope-totals" id="stage-context"><span><strong id="scope-people"></strong> <span id="scope-base-label"></span></span><span><strong id="scope-schools"></strong> школ</span></div>
         <ul id="stage-metrics" class="stage-metrics"></ul>
@@ -48,12 +53,7 @@
       <section id="schools" class="schools-block" aria-labelledby="schools-title">
         <div class="title-line"><h2 id="schools-title">Ситуация по школам</h2><button class="info" data-info="schools" aria-label="Как читать таблицу школ"><span aria-hidden="true">i</span></button></div>
         <div class="table-toolbar">
-          <div class="stage-filters" role="group" aria-label="Стадии в сравнении школ">
-            <button type="button" data-stage="1" aria-pressed="false">Напряжённость</button>
-            <button type="button" data-stage="2" aria-pressed="true">Истощение</button>
-            <button type="button" data-stage="3" aria-pressed="true">Бессилие</button>
-            <button type="button" data-stage="0" aria-pressed="false">Нет признаков</button>
-          </div>
+          <div id="stage-filters" class="stage-filters" role="group" aria-label="Стадии в сравнении школ"></div>
           <label class="filter">Сортировать <select id="school-sort">
             <option value="share">По доле</option><option value="count">По случаям</option><option value="coverage">По охвату</option><option value="surveyed">По числу опрошенных</option><option value="staff">По численности</option><option value="name">По названию</option>
           </select></label>
@@ -67,18 +67,20 @@
 
       <section class="trend" aria-labelledby="trend-title">
         <div class="section-head">
-          <h2 id="trend-title">Как меняется ситуация</h2>
-          <div id="trend-switch" class="segmented" role="group" aria-label="Показатель на графике">
-            <span class="switch-indicator" aria-hidden="true"></span>
-            <button type="button" data-metric="elevated" aria-pressed="true">Истощение или бессилие</button>
-            <button type="button" data-metric="coverage" aria-pressed="false">Ответили на опрос</button>
-          </div>
+          <div class="title-line"><h2 id="trend-title">Как меняется ситуация</h2><button class="info" data-info="trend" aria-label="Как сравнивать линии графика"><span aria-hidden="true">i</span></button></div>
+          <label class="filter"><span class="sr-only">Период динамики</span><select id="trend-range"><option value="6">6 месяцев</option><option value="12" selected>12 месяцев</option><option value="24">24 месяца</option></select></label>
         </div>
-        <div class="trend-context"><strong id="trend-value"></strong><span id="trend-delta" class="delta"></span><button id="chart-open" class="text-action" type="button" aria-expanded="false" aria-controls="chart-values">Таблица значений</button></div>
-        <div id="chart-view"><div class="chart" id="trend-chart" aria-hidden="true"></div><p id="chart-empty" class="muted" hidden>В этом периоде нет данных.</p></div>
+        <div class="trend-context">
+          <div class="chart-legend" aria-label="Значения за последний срез">
+            <span><i class="line-key key-elevated" aria-hidden="true"></i>Истощение или бессилие <strong id="trend-elevated"></strong></span>
+            <span><i class="line-key key-coverage" aria-hidden="true"></i>Ответили на опрос <strong id="trend-coverage"></strong></span>
+          </div>
+          <button id="chart-open" class="text-action" type="button" aria-expanded="false" aria-controls="chart-values">Таблица значений</button>
+        </div>
+        <div id="chart-view"><div class="chart" id="trend-chart" role="img" aria-label="Динамика выгорания и охвата опросами на общей шкале процентов"></div><p id="chart-empty" class="muted" hidden>В этом периоде нет данных.</p></div>
         <div id="chart-values" hidden>
           <div class="table-scroll" tabindex="0" role="region" aria-label="Значения по месяцам"><table aria-label="Динамика по месяцам">
-            <thead><tr><th scope="col">Срез</th><th scope="col">С опросом</th><th scope="col">Истощение или бессилие</th><th scope="col">Ответили на опрос</th></tr></thead>
+            <thead><tr><th scope="col">Срез</th><th scope="col">Истощение или бессилие</th><th scope="col">Ответили на опрос</th></tr></thead>
             <tbody id="history-rows"></tbody>
           </table></div>
           <div id="chart-pager" class="pager"></div>
