@@ -4,10 +4,35 @@ import json
 import sqlite3
 import argparse
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from wsgiref.simple_server import make_server
 from pathlib import Path
 from urllib.parse import parse_qs, quote
+
+from overview import build_overview, build_review
+
+_UI = Path(__file__).resolve().parent / "ui"
+_OVERVIEW_ASSETS = {
+    "/overview": ("overview.html", "text/html; charset=utf-8"),
+    "/overview.css": ("overview.css", "text/css; charset=utf-8"),
+    "/overview.js": ("overview.js", "text/javascript; charset=utf-8"),
+    "/overview-shared.js": ("overview-shared.js", "text/javascript; charset=utf-8"),
+}
+_PEOPLE_ASSETS = {
+    "/people": ("people.html", "text/html; charset=utf-8"),
+    "/people.js": ("people.js", "text/javascript; charset=utf-8"),
+    "/people.css": ("people.css", "text/css; charset=utf-8"),
+    "/dossier": ("dossier.html", "text/html; charset=utf-8"),
+    "/dossier.js": ("dossier.js", "text/javascript; charset=utf-8"),
+}
+_PREVIEW_ROUTES = {"/api/overview/review", "/api/people", "/api/dossier"}
+
+_SURVEY_WINDOWS = {7, 28, 90}
+
+
+def _complete_week_end(as_of):
+    cutoff = date.fromisoformat(as_of)
+    return (cutoff - timedelta(days=(cutoff.weekday() + 1) % 7)).isoformat()
 
 
 _PAGE = """<!doctype html>
@@ -536,13 +561,28 @@ document.getElementById('overview-tab').addEventListener('click',()=>setPageView
 document.getElementById('teacher-tab').addEventListener('click',()=>{setPageView('teacher');loadTeacherDirectory();});
 document.getElementById('school-select').addEventListener('change',updateTeacherOptions);
 document.getElementById('teacher-select').addEventListener('change',loadTeacherDossier);
+if (window.location.hash === '#teacher') {
+    setPageView('teacher');
+    loadTeacherDirectory().then(() => {
+        const userId = new URLSearchParams(window.location.search).get('user_id');
+        if (!userId || !teacherDirectoryLoaded) return;
+        document.getElementById('school-select').value = 'all';
+        updateTeacherOptions();
+        const teacher = document.getElementById('teacher-select');
+        teacher.value = userId;
+        if (teacher.value) loadTeacherDossier();
+    });
+}
 load();
 </script>
 </body>
 </html>"""
 
 
-def create_app(database: str | Path, *, fact_through: str | None = None, model_risk: bool = False):
+def create_app(
+    database: str | Path, *, fact_through: str | None = None, model_risk: bool = False,
+    overview_preview: bool = False,
+):
     if fact_through is None:
         config_path = Path(__file__).resolve().parent / "config" / "dashboard.json"
         with config_path.open(encoding="utf-8") as config_file:
@@ -587,6 +627,8 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
             sched AS (
                 SELECT user_id, date(dttm_from, '-6 days', 'weekday 1') week_dt,
                     SUM((julianday(MIN(dttm_to, datetime(:cutoff, '+1 day')))-julianday(dttm_from))*24.0) hours,
+                    SUM((julianday(MIN(dttm_to, date(dttm_from, '-6 days', 'weekday 1', '+7 days'),
+                        datetime(:cutoff, '+1 day')))-julianday(dttm_from))*24.0) complete_week_hours,
                     SUM((julianday(MIN(dttm_to, datetime(:cutoff, '+1 day')))-julianday(dttm_from))*24.0*act_participants_cnt) participant_hours
                 FROM user_act_schedule WHERE date(dttm_from) <= :cutoff GROUP BY user_id, week_dt
             ), act AS (
@@ -602,6 +644,7 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
                 SELECT user_id, date(week_dt, '+7 days'), last_week FROM spine WHERE week_dt < last_week
             )
             SELECT sp.user_id, sp.week_dt, ROUND(COALESCE(sc.hours, 0), 2) event_hours,
+                ROUND(COALESCE(sc.complete_week_hours, 0), 2) complete_week_hours,
                 COALESCE(a.hours, 0) activity_hours,
                 ROUND(CASE WHEN sc.hours > 0 THEN sc.participant_hours / sc.hours END, 2) act_avg_participants_per_hour
             FROM spine sp LEFT JOIN sched sc ON sc.user_id=sp.user_id AND sc.week_dt=sp.week_dt
@@ -828,10 +871,57 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
                 for level in sorted(stage_names)
             ],
         }
+        risk_results = {}
+        risk_scores = {}
         if model_risk:
             from model_risk import summarize_risk
 
-            summary["model_risk"] = summarize_risk(connection, report_date)
+            scores = {} if overview_preview else None
+            risk = summarize_risk(connection, report_date, risk_scores=scores)
+            summary["model_risk"] = risk
+            risk_results[risk["week_end"]] = risk
+            if scores is not None:
+                risk_scores[risk["week_end"]] = scores
+                prior_end = (date.fromisoformat(risk["week_end"]) - timedelta(days=7)).isoformat()
+                old_scores = {}
+                prior_risk = summarize_risk(connection, prior_end, risk_scores=old_scores)
+                risk_results[prior_end] = prior_risk
+                risk_scores[prior_end] = old_scores
+
+        academic_year = {
+            "teachers": teacher_count,
+            "surveyed": len(latest_by_teacher),
+            "schools": school_count,
+            "start": period_start,
+            "end": period_end,
+            "levels": [
+                {"code": row["level"], "name": row["name"], "count": row["count"], "percent": row["percent"]}
+                for row in summary["stages"]
+            ],
+        }
+
+        def overview_at(db, as_of, window):
+            week = _complete_week_end(as_of)
+            risk = risk_results.get(week)
+            result = build_overview(
+                db, as_of, school_names, surveys_by_teacher, burnout_type_names, risk,
+                window_days=window,
+            )
+            if result is None:
+                return None
+            before = (date.fromisoformat(week) - timedelta(days=7)).isoformat()
+            result.update({
+                "academic_year": academic_year,
+                "min_date": min(period_start or report_date, report_date),
+                "max_date": report_date,
+                "previous_model_risk": risk_results.get(before),
+                "people_available": overview_preview,
+                "review_available": week in risk_scores and risk is not None and risk["status"] == "available",
+                "model_enabled": model_risk,
+            })
+            return result
+
+        overview = overview_at(connection, report_date, 28)
 
         teacher_directory = []
         teacher_details = {}
@@ -915,11 +1005,91 @@ def create_app(database: str | Path, *, fact_through: str | None = None, model_r
             return json_response(start_response, "405 Method Not Allowed", {"error": "method not allowed"})
 
         path = environ.get("PATH_INFO", "/")
-        if path == "/":
+        if path == "/" and overview_preview:
+            path = "/overview"
+
+        if path in {"/", "/classic"}:
             return response(start_response, "200 OK", _PAGE, "text/html; charset=utf-8")
 
         if path == "/api/summary":
             return json_response(start_response, "200 OK", summary)
+
+        asset = _OVERVIEW_ASSETS.get(path) or (overview_preview and _PEOPLE_ASSETS.get(path))
+        if asset:
+            filename, content_type = asset
+            return response(start_response, "200 OK", (_UI / filename).read_bytes(), content_type)
+
+        if path == "/api/overview" or (overview_preview and path in _PREVIEW_ROUTES):
+            if overview is None:
+                return json_response(start_response, "409 Conflict", {"error": "staffing_data_missing"})
+            params = parse_qs(environ.get("QUERY_STRING", ""))
+            try:
+                as_of = date.fromisoformat(params.get("date", [report_date])[0]).isoformat()
+                window = int(params.get("window", ["28"])[0])
+                if not overview["min_date"] <= as_of <= report_date or window not in _SURVEY_WINDOWS:
+                    raise ValueError
+            except ValueError:
+                return json_response(start_response, "400 Bad Request", {"error": "invalid_period"})
+            if path == "/api/overview" and as_of == report_date and window == 28:
+                return json_response(start_response, "200 OK", overview)
+            with closing(sqlite3.connect(db_uri, uri=True)) as db:
+                db.row_factory = sqlite3.Row
+                if path == "/api/overview":
+                    return json_response(start_response, "200 OK", overview_at(db, as_of, window))
+                week = _complete_week_end(as_of)
+                scores = risk_scores.get(week)
+                risk = risk_results.get(week)
+                flagged_ids = {
+                    user_id for user_id, score in scores.items() if score >= risk["threshold"]
+                } if risk and scores else set()
+                if path == "/api/overview/review":
+                    if risk is None or risk["status"] != "available":
+                        return json_response(start_response, "404 Not Found", {"error": "no_weekly_assessment"})
+                    teacher_ids = flagged_ids
+                elif path == "/api/dossier":
+                    try:
+                        user_id = int(params.get("user_id", [""])[0])
+                    except ValueError:
+                        return json_response(start_response, "400 Bad Request", {"error": "invalid user_id"})
+                    if user_id not in teacher_details:
+                        return json_response(start_response, "404 Not Found", {"error": "teacher not found"})
+                    teacher_ids = [user_id]
+                else:
+                    # Keep the scored cohort available in the directory even if staffing changed
+                    # between the latest complete week and the selected snapshot date.
+                    active = db.execute(
+                        "SELECT user_id FROM teacher_staffing WHERE started_on <= ? "
+                        "AND (ended_on IS NULL OR ended_on > ?)", (as_of, as_of),
+                    )
+                    active_ids = {row["user_id"] for row in active}
+                    teacher_ids = active_ids | flagged_ids
+                people = build_review(
+                    db, teacher_names, school_names, surveys_by_teacher, burnout_type_names,
+                    teacher_ids, as_of, risk_scores=scores, window_days=window,
+                )
+                if path != "/api/dossier":
+                    return json_response(start_response, "200 OK", {
+                        "people": people, "model_risk": risk, "date": as_of, "survey_window_days": window,
+                    })
+                person = people[0]
+                surveys = [
+                    survey for survey in surveys_by_teacher.get(user_id, ()) if survey["survey_dt"] <= as_of
+                ]
+                last_week_start = (date.fromisoformat(week) - timedelta(days=6)).isoformat()
+                first_week_start = (date.fromisoformat(last_week_start) - timedelta(weeks=7)).isoformat()
+                history = [
+                    {
+                        "week_dt": row["week_dt"],
+                        "event_hours": row["complete_week_hours"],
+                        "activity_hours": row["activity_hours"],
+                    }
+                    for row in reversed(fact_rows_by_teacher.get(user_id, ()))
+                    if first_week_start <= row["week_dt"] <= last_week_start
+                ]
+                return json_response(start_response, "200 OK", {
+                    "person": person, "model_risk": risk, "date": as_of, "survey_window_days": window,
+                    "surveys": surveys, "history": history,
+                })
 
         if path == "/api/teachers":
             return json_response(
@@ -960,8 +1130,11 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="defaults to loopback; do not expose without HTTPS/auth")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--model-risk", action="store_true", help="assess the latest complete week with Random Forest")
+    parser.add_argument("--overview-preview", action="store_true", help="open the new synthetic overview at the root")
     args = parser.parse_args()
-    app = create_app(args.database, model_risk=args.model_risk)
+    if args.overview_preview and args.host not in {"127.0.0.1", "localhost"}:
+        parser.error("--overview-preview is available only on loopback for synthetic data")
+    app = create_app(args.database, model_risk=args.model_risk, overview_preview=args.overview_preview)
     with make_server(args.host, args.port, app) as server:
         print(f"Dashboard listening at http://{args.host}:{args.port}")
         server.serve_forever()

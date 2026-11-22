@@ -775,6 +775,15 @@ class Generator:
         )
         ins("school_dic", self.schools)
         ins("user_dic", [(t["user_id"], t["name"]) for t in self.teachers])
+        ins("teacher_staffing", [
+            (
+                t["user_id"], t["school_id"], t["stavka"],
+                (self.start + dt.timedelta(weeks=t["hire_week"])).isoformat(),
+                (self.start + dt.timedelta(weeks=t["quit_week"])).isoformat()
+                if t["quit_week"] is not None else None,
+            )
+            for t in self.teachers
+        ])
         ins("class_dic", self.classes)
         ins("event_dic", self.events)
         ins(

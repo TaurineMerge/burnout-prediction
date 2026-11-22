@@ -49,7 +49,7 @@ def add_features(panel):
     return frame
 
 
-def summarize_risk(connection, report_date):
+def summarize_risk(connection, report_date, *, risk_scores=None):
     """Fit on earlier weeks and assess the latest Monday–Sunday interval through report_date."""
     cutoff = date.fromisoformat(report_date)
     week_end = cutoff - timedelta(days=(cutoff.weekday() + 1) % 7)
@@ -122,9 +122,13 @@ def summarize_risk(connection, report_date):
     )
     model.fit(training[FEATURES].astype(float), target)
     probabilities = model.predict_proba(eligible[FEATURES].astype(float))[:, 1]
+    flagged = probabilities >= RISK_THRESHOLD
+    if risk_scores is not None:
+        ids = map(int, eligible["user_id"])
+        risk_scores.update(zip(ids, map(float, probabilities), strict=True))
     return {
         **summary,
         "status": "available",
         "scored_count": len(eligible),
-        "at_risk_count": int((probabilities >= RISK_THRESHOLD).sum()),
+        "at_risk_count": int(flagged.sum()),
     }

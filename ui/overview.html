@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Мониторинг педагогов</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/overview.css">
+  <script src="/overview-shared.js" defer></script>
+  <script src="/overview.js" defer></script>
+</head>
+<body>
+  <header class="wrap topbar">
+    <span>Свердловская область</span>
+    <nav aria-label="Разделы"><a href="/" aria-current="page">Обзор</a><a id="people-nav" href="/people" hidden>Педагоги</a><a id="classic-dossier" href="/classic#teacher" hidden>Досье</a></nav>
+  </header>
+  <main class="wrap">
+    <header class="report-head">
+      <h1>Мониторинг педагогов</h1>
+      <div class="period-controls" id="period-controls" hidden>
+        <label>Опросы за <select id="report-window"><option value="7">7 дней</option><option value="28" selected>28 дней</option><option value="90">90 дней</option></select></label>
+        <label>На дату <input id="report-date" type="date" required></label>
+      </div>
+    </header>
+    <p id="load-status" role="status">Загружаем данные…</p>
+    <div id="report" hidden>
+      <section class="signals" aria-label="Состояние на дату отчёта">
+        <div class="model-signal">
+          <div class="signal-head">
+            <div class="title-line"><h2>Риск выгорания по модели</h2><a id="review-open" class="signal-link" href="/people" aria-label="К группе риска" title="К группе риска" hidden>→</a></div>
+            <div class="signal-period"><p class="signal-meta" id="model-note"></p><button class="info" data-info="model" aria-label="Как рассчитана группа риска"><span aria-hidden="true">i</span></button></div>
+          </div>
+          <div class="signal-values"><div><strong class="hero-number" id="model-value"></strong><span class="number-context" id="model-base"></span></div><div class="signal-share"><strong id="model-share"></strong><span class="signal-change" id="model-change"></span></div></div>
+        </div>
+        <div class="survey-signal">
+          <div class="signal-head">
+            <h2>Истощение или бессилие по опросам</h2>
+            <div class="signal-period"><p class="signal-meta" id="survey-period"></p><button class="info" data-info="survey" aria-label="Как посчитаны результаты опросов"><span aria-hidden="true">i</span></button></div>
+          </div>
+          <div class="signal-values"><div><strong class="hero-number" id="elevated-value"></strong><span class="number-context" id="elevated-base"></span></div><div class="signal-share"><strong id="elevated-share"></strong><span class="signal-change" id="elevated-change"></span></div></div>
+        </div>
+      </section>
+
+      <section class="stages" aria-labelledby="stage-title">
+        <div class="section-head">
+          <div class="title-line"><h2 id="stage-title">Стадии по опросам</h2><button class="info" data-info="stages" aria-label="Как сравнивать периоды опросов"><span aria-hidden="true">i</span></button></div>
+          <label class="filter"><span class="sr-only">Период для стадий</span><select id="stage-period"><option value="year">Весь учебный год</option><option value="current">За окно опросов</option></select></label>
+        </div>
+        <div class="scope-totals" id="stage-context"><span><strong id="scope-people"></strong> <span id="scope-base-label"></span></span><span><strong id="scope-schools"></strong> школ</span></div>
+        <ul id="stage-metrics" class="stage-metrics"></ul>
+      </section>
+
+      <section id="schools" class="schools-block" aria-labelledby="schools-title">
+        <div class="section-head">
+          <div class="title-line"><h2 id="schools-title">Ситуация по школам</h2><button class="info" data-info="schools" aria-label="Как читать таблицу школ"><span aria-hidden="true">i</span></button></div>
+          <div class="school-view" role="group" aria-label="Данные по школам"><button type="button" data-school-view="observed" aria-pressed="true">По опросам</button><button type="button" data-school-view="forecast" aria-pressed="false">Прогноз</button></div>
+        </div>
+        <p class="forecast-period muted" id="school-forecast-note" hidden></p>
+        <div class="table-toolbar">
+          <div id="stage-filters" class="stage-filters" role="group" aria-label="Стадии в сравнении школ"></div>
+          <label class="filter">Сортировать <select id="school-sort">
+            <option value="share">По доле</option><option value="count">По случаям</option><option value="coverage">По охвату</option><option value="surveyed">По числу опрошенных</option><option value="staff">По численности</option><option value="name">По названию</option>
+          </select></label>
+        </div>
+        <div class="table-scroll" role="region" aria-label="Сравнение школ" tabindex="0"><table aria-labelledby="schools-title">
+          <thead>
+            <tr id="observed-head"><th scope="col" data-key="name">Школа</th><th scope="col" data-key="staff">В штате</th><th scope="col" data-key="surveyed">С опросом</th><th scope="col" data-key="coverage">Охват</th><th scope="col" data-key="count">Педагогов</th><th scope="col" data-key="share">Доля</th></tr>
+            <tr id="forecast-head" hidden><th scope="col" data-key="name">Школа</th><th scope="col" data-key="surveyed">Ответов в расчёте</th><th scope="col">Периодов</th><th scope="col" data-key="share">Ожидаемая доля</th></tr>
+          </thead>
+          <tbody id="school-rows"></tbody>
+        </table></div>
+        <div id="school-pager" class="pager"></div>
+      </section>
+
+      <section class="trend" aria-labelledby="trend-title">
+        <div class="section-head">
+          <div class="title-line"><h2 id="trend-title">Как меняется ситуация</h2><button class="info" data-info="trend" aria-label="Как сравнивать линии графика"><span aria-hidden="true">i</span></button></div>
+          <label class="filter"><span class="sr-only">Период динамики</span><select id="trend-range"><option value="6">6 месяцев</option><option value="12" selected>12 месяцев</option><option value="24">24 месяца</option></select></label>
+        </div>
+        <div class="trend-context">
+          <button id="chart-open" class="text-action" type="button" aria-expanded="false" aria-controls="chart-values">Таблица значений</button>
+        </div>
+        <div id="chart-view"><div class="chart" id="trend-chart" role="group" aria-label="Динамика выгорания и охвата по месяцам"></div><p id="chart-empty" class="muted" hidden>В этом периоде нет данных.</p></div>
+        <div id="chart-values" hidden>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Значения по месяцам"><table aria-label="Динамика по месяцам">
+            <thead><tr><th scope="col">Срез</th><th scope="col">Истощение или бессилие</th><th scope="col">Ответили на опрос</th></tr></thead>
+            <tbody id="history-rows"></tbody>
+          </table></div>
+          <div id="chart-pager" class="pager"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <dialog id="info-dialog" aria-labelledby="info-title">
+    <header class="dialog-head"><h2 id="info-title"></h2><form method="dialog"><button class="close" aria-label="Закрыть">×</button></form></header>
+    <p id="info-body"></p>
+  </dialog>
+</body>
+</html>
