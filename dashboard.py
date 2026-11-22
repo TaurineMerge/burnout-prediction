@@ -61,8 +61,6 @@ body{margin:0;background:#f6f1fb;color:var(--ink);font:13px/1.35 system-ui,-appl
 .sparkline .forecast-line{stroke-dasharray:4 3}
 .stage-window{color:#766986;font-size:.54rem;white-space:nowrap}
 .accuracy-card{display:flex;min-height:82px;align-items:center;gap:8px;padding:8px 10px;border-color:#d4c0ef;background:linear-gradient(130deg,#fff 0%,#f4ebff 100%)}
-.accuracy-icon{display:grid;width:38px;height:38px;flex:0 0 38px;place-items:center;color:#6530aa}
-.accuracy-icon svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
 .accuracy-copy{min-width:0}
 .accuracy-value{display:block;margin-top:2px;color:#3b1d67;font-size:1.32rem;font-weight:820;line-height:1.05}
 .accuracy-note{display:block;margin-top:2px;color:#70617f;font-size:.58rem;line-height:1.2}
@@ -194,7 +192,7 @@ button.nav-tab:focus-visible{outline:2px solid #5b2bac;outline-offset:2px}
 <section class="kpi-grid" aria-label="Ключевые показатели">
 <article class="kpi-card teacher-card" aria-label="Учителя и школы"><div class="teacher-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="12" cy="10" r="4"/><path d="M4 26v-2a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v2"/><path d="M22 17a6 6 0 0 1 6 6v3h-5"/><path d="M20 6.5a4 4 0 0 1 0 7"/></svg></div><div class="teacher-copy"><div class="kpi-title">Учителей</div><strong class="teacher-count" id="teacher-count">—</strong><span class="school-count" id="school-count">— школ</span></div></article>
 <div id="stage-cards" hidden></div>
-<article class="kpi-card accuracy-card" aria-label="Оценочная точность модели"><div class="accuracy-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="3" y="8" width="24" height="16" rx="3"/><path d="M28 13h2v6h-2"/><path d="M8 12h3v8H8z"/></svg></div><div class="accuracy-copy"><div class="kpi-title">Оценочная точность модели</div><strong class="accuracy-value" id="model-accuracy">—</strong><span class="accuracy-note">Будет доступна после подключения модели</span></div></article>
+<article class="kpi-card accuracy-card" aria-label="Риск уровня 2 и выше по модели"><div class="accuracy-copy"><div class="kpi-title">Риск уровня ≥ 2 по модели</div><strong class="accuracy-value" id="model-risk-count">—</strong><span class="accuracy-note" id="model-risk-note"></span></div></article>
 </section>
 <section class="report-panel ranking-panel" aria-labelledby="ranking-title">
 <header class="report-header"><div class="report-heading-group"><h2 class="section-pill" id="ranking-title">Антирейтинг школ</h2><p class="report-description">Школы с наибольшей долей педагогов по стадиям выгорания</p></div><div class="ranking-toolbar"><fieldset class="snapshot-toggle" id="ranking-snapshot-toggle"><legend>Срез:</legend><div class="snapshot-options"><label class="snapshot-option"><input type="radio" name="ranking-snapshot" value="fact" checked>Факт до <strong id="ranking-fact-to">—</strong></label><label class="snapshot-option"><input type="radio" name="ranking-snapshot" value="forecast">Прогноз <strong id="ranking-forecast-from">—</strong> — <strong id="ranking-forecast-to">—</strong></label></div></fieldset><fieldset class="category-filters"><legend>Категории выгоревших:</legend><div class="filter-options" id="ranking-level-filters" data-default-unchecked-level="1"></div></fieldset></div></header>
@@ -337,11 +335,23 @@ function drawTrend(summary){
     chart.setAttribute('aria-label','Динамика доли педагогов выбранных стадий, '+place+', '+monthLabel(visibleMonths[0],true)+' — '+monthLabel(visibleMonths[visibleMonths.length-1],true));
 }
 function renderLowerReport(summary){const rankingUpdate=()=>updateRankingMetrics(summary);const trendUpdate=()=>drawTrend(summary);renderLevelFilters('ranking-level-filters','ranking-level',summary.stages,rankingUpdate);renderLevelFilters('trend-level-filters','trend-level',summary.stages,trendUpdate);const schoolSelect=document.getElementById('school-filter');const schoolOptions=summary.schools.map(school=>{const option=document.createElement('option');option.value=String(school.school_id);option.textContent=school.name;return option;});schoolSelect.append(...schoolOptions);const periodSelect=document.getElementById('trend-period');const months=summary.trend_months;const periodOptions=[{value:'all',label:months.length?monthLabel(months[0],true)+' — '+monthLabel(months[months.length-1],true):'Весь период'}];if(months.length>6)periodOptions.push({value:'6',label:'Последние 6 месяцев'});if(months.length>3)periodOptions.push({value:'3',label:'Последние 3 месяца'});periodSelect.replaceChildren(...periodOptions.map(item=>{const option=document.createElement('option');option.value=item.value;option.textContent=item.label;return option;}));schoolSelect.addEventListener('change',trendUpdate);periodSelect.addEventListener('change',trendUpdate);document.querySelectorAll('input[name="ranking-snapshot"]').forEach(input=>input.addEventListener('change',()=>renderRanking(summary)));renderRanking(summary);drawTrend(summary);}
+function renderModelRisk(risk){
+    const count=document.getElementById('model-risk-count');
+    const note=document.getElementById('model-risk-note');
+    if(!risk){note.textContent='Расчёт отключён';return;}
+    if(risk.status!=='available'){
+        note.textContent=risk.status==='insufficient_labels'?'Мало данных опросов для обучения':'Мало данных об активности за неделю';
+        return;
+    }
+    count.textContent=fmt.format(risk.at_risk_count)+' из '+fmt.format(risk.scored_count);
+    note.textContent='Оценка за '+formatReportDate(risk.week_start)+' — '+formatReportDate(risk.week_end)+'. Охват: '+fmt.format(risk.scored_count)+' из '+fmt.format(risk.observed_count)+' с активностью.';
+}
 async function load(){
     try{
         const response=await fetch('/api/summary');
         if(!response.ok)throw new Error('Ошибка получения данных');
         const summary=await response.json();
+        renderModelRisk(summary.model_risk);
         document.getElementById('teacher-count').textContent=fmt.format(summary.teacher_count);
         document.getElementById('school-count').textContent=fmt.format(summary.school_count)+' '+schoolWord(summary.school_count);
         document.getElementById('report-date').textContent=formatReportDate(summary.report_date);
@@ -532,7 +542,7 @@ load();
 </html>"""
 
 
-def create_app(database: str | Path, *, fact_through: str | None = None):
+def create_app(database: str | Path, *, fact_through: str | None = None, model_risk: bool = False):
     if fact_through is None:
         config_path = Path(__file__).resolve().parent / "config" / "dashboard.json"
         with config_path.open(encoding="utf-8") as config_file:
@@ -818,6 +828,11 @@ def create_app(database: str | Path, *, fact_through: str | None = None):
                 for level in sorted(stage_names)
             ],
         }
+        if model_risk:
+            from model_risk import summarize_risk
+
+            summary["model_risk"] = summarize_risk(connection, report_date)
+
         teacher_directory = []
         teacher_details = {}
         for teacher_id, teacher_name in teacher_names.items():
@@ -944,8 +959,9 @@ def main():
     parser.add_argument("--database", default="data/teacher_burnout.db")
     parser.add_argument("--host", default="127.0.0.1", help="defaults to loopback; do not expose without HTTPS/auth")
     parser.add_argument("--port", type=int, default=8081)
+    parser.add_argument("--model-risk", action="store_true", help="assess the latest complete week with Random Forest")
     args = parser.parse_args()
-    app = create_app(args.database)
+    app = create_app(args.database, model_risk=args.model_risk)
     with make_server(args.host, args.port, app) as server:
         print(f"Dashboard listening at http://{args.host}:{args.port}")
         server.serve_forever()
